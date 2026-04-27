@@ -1,0 +1,19 @@
+stage0:
+  mode: random
+  clip_model: ViT-B-32
+  clip_pretrained: openai
+  vlm_model: Qwen/Qwen2-VL-2B-Instruct
+  llm_model: Qwen/Qwen2.5-7B-Instruct
+  k: 4
+stage1:
+  model: Qwen/Qwen2.5-7B-Instruct
+  context_mode: none
+  use_causal_inference: false
+stage2:
+  base_model: runwayml/stable-diffusion-v1-5
+  use_ipadapter: true
+  use_stylealigned: false
+  style_image_path: null
+stage3:
+  output_format: pdf
+  page_layout: image_top_text_bottom
