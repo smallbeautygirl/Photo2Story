@@ -20,7 +20,6 @@
 
 - **RQ1：** 不同選片策略（隨機 / CLIP-only / LLM-only / 混合）對生成繪本敘事品質的影響？
 - **RQ2：** 使用者情境描述（無 / 關鍵字 / 完整句）對選片關聯性與故事品質的影響？
-- **RQ3：** 人臉身份保留（無 / FaceID）對插圖中人物一致性的影響？
 
 ---
 
@@ -91,12 +90,11 @@
 | 版本 | 模型 | 備註 |
 |------|------|------|
 | Demo 版 | SD 1.5 + IP-Adapter（風格條件） | ~5GB VRAM，快速 |
-| 研究版 | SDXL + IP-Adapter FaceID + StyleAligned | ~8GB VRAM |
+| 研究版 | SDXL + IP-Adapter + StyleAligned | ~8GB VRAM |
 
-**跨頁風格一致性：** StyleAligned attention sharing（研究版）  
-**人臉嵌入：** IP-Adapter FaceID + InsightFace（研究版，對應 RQ3）
+**跨頁風格一致性：** StyleAligned attention sharing（研究版）
 
-**參考論文：** Ye et al., *IP-Adapter*, ICCV 2023；Hertz et al., *StyleAligned*, CVPR 2024；Wang et al., *InstantID*, 2024
+**參考論文：** Ye et al., *IP-Adapter*, ICCV 2023；Hertz et al., *StyleAligned*, CVPR 2024
 
 ---
 
@@ -122,8 +120,7 @@ photo2story/
 │   ├── ablation_rq1_hybrid.yaml   # RQ1：混合選片（本方法）
 │   ├── ablation_rq2_keyword.yaml  # RQ2：關鍵字情境
 │   ├── ablation_rq2_full.yaml     # RQ2：完整句情境
-│   ├── ablation_rq3_faceid.yaml   # RQ3：FaceID 人臉保留
-│   └── full.yaml                  # 完整系統
+│   └── full.yaml                  # 完整系統（RQ1 混合 + RQ2 完整情境）
 │
 ├── src/
 │   ├── pipeline.py                # StoryPipeline 主控類別
@@ -172,16 +169,15 @@ stage3:
 
 ## 六、實驗計畫（Ablation Study）
 
-| Config | Stage 0 選片 | 情境描述 | 人臉保留 | 對應 RQ |
-|--------|------------|---------|---------|---------|
-| `baseline` | 隨機選 K 張 | 無 | 無 | 基準 |
-| `ablation_rq1_clip` | CLIP-only | 無 | 無 | RQ1-A |
-| `ablation_rq1_llm` | LLM-only | 有 | 無 | RQ1-B |
-| `ablation_rq1_hybrid` | 混合（本方法） | 有 | 無 | **RQ1 主張** |
-| `ablation_rq2_nokw` | 混合 | 無情境 | 無 | RQ2-A |
-| `ablation_rq2_keyword` | 混合 | 關鍵字 | 無 | RQ2-B |
-| `ablation_rq2_full` | 混合 | 完整句子 | 無 | RQ2-C |
-| `ablation_rq3_faceid` | 混合 | 有 | FaceID | RQ3 |
+| Config | Stage 0 選片 | 情境描述 | 對應 RQ |
+|--------|------------|---------|---------|
+| `baseline` | 隨機選 K 張 | 無 | 基準 |
+| `ablation_rq1_clip` | CLIP-only | 無 | RQ1-A |
+| `ablation_rq1_llm` | LLM-only | 有 | RQ1-B |
+| `ablation_rq1_hybrid` | 混合（本方法） | 有 | **RQ1 主張** |
+| `ablation_rq2_nokw` | 混合 | 無情境 | RQ2-A |
+| `ablation_rq2_keyword` | 混合 | 關鍵字 | RQ2-B |
+| `ablation_rq2_full` | 混合 | 完整句子 | RQ2-C |
 
 ---
 
@@ -195,7 +191,6 @@ stage3:
 | 故事與照片相符 | GPT-4-as-judge + 人工問卷 | 混合 | 混合 |
 | 插圖風格一致性 | CLIP 特徵跨頁標準差 | OpenCLIP | 自動 |
 | 整體滿意度 | 人工問卷（3 題 × 5 人） | Google Form | 人工 |
-| 人物一致性（RQ3） | ArcFace 相似度 | InsightFace | 自動 |
 
 ### 人工問卷（3 題，Google Form）
 1. 這本繪本的故事讀起來連不連貫？（1 完全不連貫 ～ 5 非常連貫）
@@ -217,7 +212,6 @@ stage3:
 | Qwen2.5-7B（4-bit） | ~5 GB |
 | SD 1.5 + IP-Adapter | ~5 GB |
 | SDXL + IP-Adapter | ~8 GB |
-| InsightFace | ~0.5 GB |
 
 **關鍵策略：** Stage 0/1（VLM/LLM）與 Stage 2（SD）分開載入，不同時佔用 VRAM，`model_manager.py` 負責 `del + torch.cuda.empty_cache()` 管理。
 
@@ -255,7 +249,13 @@ Week 2：
 
 ---
 
-## 十一、倫理聲明
+## 十一、未來工作（Future Work）
+
+**真實人臉植入插圖（FaceID）：** 使用 InsightFace 偵測照片中的人臉並建立 embedding，搭配 IP-Adapter FaceID 將真實人物外觀嵌入插圖，以 ArcFace 相似度評估跨頁人臉一致性。此方向因實作複雜度較高，列為後續研究延伸。
+
+---
+
+## 十二、倫理聲明
 
 - 訓練資料使用公開授權資料集（FFHQ、CelebA-HQ、VIST）
 - Demo 系統不儲存使用者上傳照片（session 結束後清除）
