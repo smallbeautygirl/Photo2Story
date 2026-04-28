@@ -3,6 +3,7 @@ import sys
 import pytest
 import numpy as np
 from unittest.mock import MagicMock, patch
+import piexif
 
 torch = pytest.importorskip("torch")  # skip entire file if torch not available
 
@@ -40,3 +41,75 @@ def test_clip_cluster_select_no_duplicates(tmp_images):
         result = clip_cluster_select(tmp_images, k=3, model_name="ViT-B-32", pretrained="openai")
 
     assert len(result) == len(set(result))
+
+
+from src.stages.stage0_select import sort_by_exif, run_stage0
+
+
+def test_sort_by_exif_no_exif_returns_all(tmp_images):
+    """Images without EXIF should be returned unchanged (all at end)."""
+    result = sort_by_exif(tmp_images)
+    assert len(result) == len(tmp_images)
+    assert set(result) == set(tmp_images)
+
+
+def test_sort_by_exif_with_timestamps(tmp_path):
+    """Images with EXIF timestamps should be sorted chronologically."""
+    from PIL import Image as PILImage
+
+    paths = []
+    timestamps = ["2024:07:01 10:00:00", "2024:07:01 08:00:00", "2024:07:01 12:00:00"]
+    for i, ts in enumerate(timestamps):
+        p = tmp_path / f"img_{i}.jpg"
+        PILImage.new("RGB", (64, 64), color=(i*80, i*80, i*80)).save(p)
+        exif_dict = {"0th": {}, "Exif": {piexif.ExifIFD.DateTimeOriginal: ts.encode()}, "1st": {}, "thumbnail": None, "GPS": {}}
+        piexif.insert(piexif.dump(exif_dict), str(p))
+        paths.append(str(p))
+
+    result = sort_by_exif(paths)
+    # Should be ordered: img_1 (08:00) < img_0 (10:00) < img_2 (12:00)
+    assert result[0] == paths[1]
+    assert result[1] == paths[0]
+    assert result[2] == paths[2]
+
+
+def test_run_stage0_random_mode(tmp_images, demo_config, mocker):
+    """random mode selects k images without calling VLM."""
+    cfg = dict(demo_config["stage0"])
+    cfg["mode"] = "random"
+
+    mock_describe = mocker.patch("src.stages.stage0_select.describe_photos_with_vlm",
+                                  return_value={p: f"desc {i}" for i, p in enumerate(tmp_images)})
+
+    result = run_stage0(tmp_images, context="test trip", config=cfg)
+
+    assert len(result["selected_paths"]) == cfg["k"]
+    assert "descriptions" in result
+    assert "ordered_paths" in result
+    assert len(result["ordered_paths"]) == cfg["k"]
+    mock_describe.assert_called_once()  # still called to get descriptions
+
+
+def test_run_stage0_hybrid_mode_calls_vlm_and_scores(tmp_images, demo_config, mocker):
+    """hybrid mode calls VLM describe and LLM scoring."""
+    cfg = dict(demo_config["stage0"])
+    cfg["mode"] = "hybrid"
+
+    features = np.eye(5, 512).astype(np.float32)
+    mock_oc = _make_open_clip_mock(features)
+
+    mock_describe = mocker.patch(
+        "src.stages.stage0_select.describe_photos_with_vlm",
+        return_value={p: f"desc {i}" for i, p in enumerate(tmp_images[:4])},
+    )
+    mock_score = mocker.patch(
+        "src.stages.stage0_select.score_relevance_with_llm",
+        return_value={p: 0.8 for p in tmp_images[:4]},
+    )
+
+    with patch.dict(sys.modules, {"open_clip": mock_oc}):
+        result = run_stage0(tmp_images, context="beach holiday", config=cfg)
+
+    assert len(result["ordered_paths"]) == cfg["k"]
+    mock_describe.assert_called_once()
+    mock_score.assert_called_once()
