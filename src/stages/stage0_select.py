@@ -156,27 +156,43 @@ def run_stage0(image_paths: list[str], context: str, config: dict) -> dict:
         candidates = clip_cluster_select(
             image_paths, k, config["clip_model"], config["clip_pretrained"]
         )
-    elif mode in ("llm_only", "hybrid"):
+    elif mode == "llm_only":
+        # Describe ALL images, score against context, pick top-k
+        all_descs = describe_photos_with_vlm(image_paths, config["vlm_model"])
+        all_scores = score_relevance_with_llm(all_descs, context, config["llm_model"])
+        sorted_paths = sorted(all_scores, key=lambda p: all_scores[p], reverse=True)
+        candidates = sorted_paths[:k]
+        descriptions = {p: all_descs[p] for p in candidates}
+    elif mode == "hybrid":
+        # CLIP clustering for diversity, then re-rank by LLM relevance score
         candidates = clip_cluster_select(
             image_paths, k, config["clip_model"], config["clip_pretrained"]
         )
     else:
         raise ValueError(f"Unknown stage0 mode: {mode}")
 
-    # Phase B: describe all candidates with VLM
-    descriptions = describe_photos_with_vlm(candidates, config["vlm_model"])
+    # Phase B: describe candidates with VLM (skip if llm_only already did this)
+    if mode != "llm_only":
+        descriptions = describe_photos_with_vlm(candidates, config["vlm_model"])
 
-    # Phase B: score relevance against user context (llm_only and hybrid)
-    if mode in ("llm_only", "hybrid") and context:
+    # Phase B: score and re-rank candidates for hybrid mode
+    if mode == "hybrid" and context:
         scores = score_relevance_with_llm(descriptions, context, config["llm_model"])
-
-        if mode == "llm_only":
-            # Re-select top-k from all images by score
-            all_descs = describe_photos_with_vlm(image_paths, config["vlm_model"])
-            all_scores = score_relevance_with_llm(all_descs, context, config["llm_model"])
-            sorted_paths = sorted(all_scores, key=lambda p: all_scores[p], reverse=True)
-            candidates = sorted_paths[:k]
-            descriptions = {p: all_descs[p] for p in candidates}
+        # Replace any candidate scoring below 0.4 with the next-best from pool if available
+        low_score_paths = [p for p in candidates if scores.get(p, 1.0) < 0.4]
+        if low_score_paths:
+            pool_paths = [p for p in image_paths if p not in candidates]
+            if pool_paths:
+                pool_descs = describe_photos_with_vlm(pool_paths, config["vlm_model"])
+                pool_scores = score_relevance_with_llm(pool_descs, context, config["llm_model"])
+                for bad_path in low_score_paths:
+                    if pool_paths:
+                        best_replacement = max(pool_paths, key=lambda p: pool_scores.get(p, 0))
+                        idx = candidates.index(bad_path)
+                        candidates[idx] = best_replacement
+                        descriptions[best_replacement] = pool_descs[best_replacement]
+                        del descriptions[bad_path]
+                        pool_paths.remove(best_replacement)
 
     # Phase C: order by EXIF timestamp
     ordered = sort_by_exif(candidates)
