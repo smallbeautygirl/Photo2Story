@@ -1,29 +1,31 @@
 from __future__ import annotations
+
 import json
-import torch
+import logging
+import re
+
+from src.utils.gemini_client import generate_text
 from src.utils.prompt_templates import LLM_CAUSAL_INFERENCE, LLM_STORY_GENERATION
 
+logger = logging.getLogger(__name__)
 
-def _load_llm(model_name: str):
-    from transformers import AutoTokenizer, AutoModelForCausalLM
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
-    model = AutoModelForCausalLM.from_pretrained(
-        model_name, torch_dtype=torch.float16, load_in_4bit=True, device_map="auto"
-    )
-    return model, tokenizer
+_CODE_FENCE_RE = re.compile(r"```(?:json)?\s*(.*?)```", re.DOTALL | re.IGNORECASE)
 
 
-def _generate_text(model, tokenizer, prompt: str, max_new_tokens: int = 512) -> str:
-    inputs = tokenizer(prompt, return_tensors="pt")
-    # Move to GPU if the inputs object supports it (real BatchEncoding does; plain dicts don't)
-    if hasattr(inputs, "to"):
-        inputs = inputs.to("cuda")
-    with torch.no_grad():
-        output = model.generate(**inputs, max_new_tokens=max_new_tokens, do_sample=False)
-    input_len = inputs["input_ids"].shape[1]
-    return tokenizer.decode(
-        output[0][input_len:], skip_special_tokens=True
-    ).strip()
+def _extract_json_array(raw: str) -> list | None:
+    """Pull a JSON array out of an LLM reply that may be wrapped in markdown fences or prose."""
+    fence_match = _CODE_FENCE_RE.search(raw)
+    candidate = fence_match.group(1).strip() if fence_match else raw
+
+    start = candidate.find("[")
+    end = candidate.rfind("]")
+    if start == -1 or end == -1 or end <= start:
+        return None
+    try:
+        parsed = json.loads(candidate[start : end + 1])
+    except json.JSONDecodeError:
+        return None
+    return parsed if isinstance(parsed, list) else None
 
 
 def infer_causal_narrative(
@@ -33,11 +35,8 @@ def infer_causal_narrative(
     k = len(descriptions)
     desc_block = "\n".join(f"{i+1}. {desc}" for i, desc in enumerate(descriptions.values()))
     prompt = LLM_CAUSAL_INFERENCE.format(k=k, context=context, descriptions=desc_block)
-    model, tokenizer = _load_llm(model_name)
-    narrative = _generate_text(model, tokenizer, prompt, max_new_tokens=256)
-    del model
-    torch.cuda.empty_cache()
-    return narrative
+    logger.info("Inferring causal narrative", extra={"model": model_name, "k": k})
+    return generate_text(prompt, model_name, max_output_tokens=256)
 
 
 def generate_story(
@@ -55,19 +54,24 @@ def generate_story(
     prompt = LLM_STORY_GENERATION.format(
         k=k, style=style, context=context, narrative=narrative, descriptions=desc_block
     )
-    model, tokenizer = _load_llm(model_name)
-    raw = _generate_text(model, tokenizer, prompt, max_new_tokens=512)
-    del model
-    torch.cuda.empty_cache()
+    logger.info("Generating story pages", extra={"model": model_name, "k": k, "style": style})
+    raw = generate_text(
+        prompt,
+        model_name,
+        max_output_tokens=512,
+        response_schema=list[str],
+    )
 
-    try:
-        pages = json.loads(raw)
-        if isinstance(pages, list) and len(pages) == k:
-            return [str(p) for p in pages]
-    except (json.JSONDecodeError, ValueError):
-        pass
+    pages = _extract_json_array(raw)
+    if pages is not None and len(pages) == k:
+        return [str(p) for p in pages]
 
-    lines = [l.strip() for l in raw.split("\n") if l.strip()]
+    logger.warning(
+        "Story generation did not return a valid k-length JSON array; falling back to line split",
+        extra={"k": k, "got": len(pages) if pages is not None else None},
+    )
+
+    lines = [l.strip() for l in raw.split("\n") if l.strip() and not l.strip().startswith("```")]
     while len(lines) < k:
         lines.append("")
     return lines[:k]

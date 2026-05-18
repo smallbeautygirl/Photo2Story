@@ -1,15 +1,27 @@
 from __future__ import annotations
-import json
+
+import logging
 import random
+import re
+from datetime import datetime
+
 import numpy as np
 import piexif
-from datetime import datetime
 from PIL import Image
 from sklearn.cluster import KMeans
+
+from src.utils.gemini_client import describe_image, generate_text
 from src.utils.prompt_templates import (
-    VLM_DESCRIBE_PHOTO,
+    LLM_INFER_THEME,
     LLM_SCORE_RELEVANCE,
+    VLM_DESCRIBE_PHOTO,
 )
+
+logger = logging.getLogger(__name__)
+
+_SCORE_RE = re.compile(r"[-+]?\d*\.?\d+")
+_LOW_SCORE_THRESHOLD = 0.4
+_DEFAULT_RELEVANCE = 0.5
 
 
 def clip_cluster_select(
@@ -53,68 +65,65 @@ def clip_cluster_select(
 
 
 def describe_photos_with_vlm(image_paths: list[str], model_name: str) -> dict[str, str]:
-    """Phase B step 1: Generate text description for each photo using VLM."""
-    from transformers import Qwen2VLForConditionalGeneration, AutoProcessor
-    import torch
-
-    model = Qwen2VLForConditionalGeneration.from_pretrained(
-        model_name, torch_dtype=torch.float16, load_in_4bit=True, device_map="auto"
+    """Phase B step 1: Generate a text description for each photo via Gemini VLM."""
+    logger.info(
+        "Describing photos with Gemini VLM",
+        extra={"model": model_name, "count": len(image_paths)},
     )
-    processor = AutoProcessor.from_pretrained(model_name)
+    return {
+        path: describe_image(path, VLM_DESCRIBE_PHOTO, model_name)
+        for path in image_paths
+    }
 
-    descriptions: dict[str, str] = {}
-    for path in image_paths:
-        messages = [{"role": "user", "content": [
-            {"type": "image", "image": path},
-            {"type": "text", "text": VLM_DESCRIBE_PHOTO},
-        ]}]
-        text = processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-        inputs = processor(
-            text=[text],
-            images=[Image.open(path).convert("RGB")],
-            return_tensors="pt",
-        ).to("cuda")
-        with torch.no_grad():
-            output_ids = model.generate(**inputs, max_new_tokens=128)
-        generated = processor.batch_decode(
-            output_ids[:, inputs["input_ids"].shape[1]:], skip_special_tokens=True
-        )
-        descriptions[path] = generated[0].strip()
 
-    del model
-    torch.cuda.empty_cache()
-    return descriptions
+def _parse_score(raw: str) -> float | None:
+    """Extract first decimal number in [0, 1] from LLM output. Returns None if unparseable."""
+    match = _SCORE_RE.search(raw)
+    if not match:
+        return None
+    try:
+        return max(0.0, min(1.0, float(match.group(0))))
+    except ValueError:
+        return None
 
 
 def score_relevance_with_llm(
     descriptions: dict[str, str], context: str, model_name: str
 ) -> dict[str, float]:
     """Phase B step 2: Score each description's relevance to user context."""
-    from transformers import AutoTokenizer, AutoModelForCausalLM
-    import torch
-
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
-    model = AutoModelForCausalLM.from_pretrained(
-        model_name, torch_dtype=torch.float16, load_in_4bit=True, device_map="auto"
+    logger.info(
+        "Scoring photo relevance with Gemini LLM",
+        extra={"model": model_name, "count": len(descriptions), "context": context},
     )
-
     scores: dict[str, float] = {}
     for path, desc in descriptions.items():
         prompt = LLM_SCORE_RELEVANCE.format(context=context, description=desc)
-        inputs = tokenizer(prompt, return_tensors="pt").to("cuda")
-        with torch.no_grad():
-            output = model.generate(**inputs, max_new_tokens=8, do_sample=False)
-        raw = tokenizer.decode(
-            output[0][inputs["input_ids"].shape[1]:], skip_special_tokens=True
-        )
-        try:
-            scores[path] = float(raw.strip().split()[0])
-        except (ValueError, IndexError):
-            scores[path] = 0.5
-
-    del model
-    torch.cuda.empty_cache()
+        raw = generate_text(prompt, model_name, max_output_tokens=8)
+        parsed = _parse_score(raw)
+        if parsed is None:
+            logger.warning(
+                "Could not parse relevance score; defaulting to 0.5",
+                extra={"path": path, "raw": raw[:64]},
+            )
+            parsed = _DEFAULT_RELEVANCE
+        scores[path] = parsed
     return scores
+
+
+def infer_theme_from_descriptions(
+    descriptions: dict[str, str], model_name: str
+) -> str:
+    """Infer a short theme from VLM descriptions; used when user context is empty."""
+    if not descriptions:
+        return ""
+    desc_block = "\n".join(f"- {d}" for d in descriptions.values())
+    prompt = LLM_INFER_THEME.format(k=len(descriptions), descriptions=desc_block)
+    logger.info(
+        "Inferring theme from photo descriptions",
+        extra={"model": model_name, "count": len(descriptions)},
+    )
+    raw = generate_text(prompt, model_name, max_output_tokens=32)
+    return raw.strip().strip('"').strip("'")
 
 
 def sort_by_exif(image_paths: list[str]) -> list[str]:
@@ -122,17 +131,56 @@ def sort_by_exif(image_paths: list[str]) -> list[str]:
     def get_dt(p: str) -> datetime | None:
         try:
             exif = piexif.load(p)
-            raw = exif.get("Exif", {}).get(piexif.ExifIFD.DateTimeOriginal)
-            if raw:
-                return datetime.strptime(raw.decode(), "%Y:%m:%d %H:%M:%S")
-        except Exception:
-            pass
-        return None
+        except (FileNotFoundError, piexif.InvalidImageDataError, ValueError) as e:
+            logger.warning("Could not load EXIF", extra={"path": p, "error": str(e)})
+            return None
+        raw = exif.get("Exif", {}).get(piexif.ExifIFD.DateTimeOriginal)
+        if not raw:
+            return None
+        try:
+            return datetime.strptime(raw.decode(), "%Y:%m:%d %H:%M:%S")
+        except (ValueError, AttributeError):
+            logger.warning(
+                "Could not parse DateTimeOriginal",
+                extra={"path": p, "raw": str(raw)[:32]},
+            )
+            return None
 
     dated = [(p, get_dt(p)) for p in image_paths]
     with_dt = sorted([(p, dt) for p, dt in dated if dt], key=lambda x: x[1])
     without_dt = [p for p, dt in dated if not dt]
     return [p for p, _ in with_dt] + without_dt
+
+
+def _replace_low_score_candidates(
+    candidates: list[str],
+    descriptions: dict[str, str],
+    scores: dict[str, float],
+    image_paths: list[str],
+    effective_context: str,
+    config: dict,
+) -> None:
+    """In place: swap any candidate scoring < threshold with best-scoring pool replacement."""
+    low_score_paths = [p for p in candidates if scores.get(p, 1.0) < _LOW_SCORE_THRESHOLD]
+    if not low_score_paths:
+        return
+
+    pool_paths = [p for p in image_paths if p not in candidates]
+    if not pool_paths:
+        return
+
+    pool_descs = describe_photos_with_vlm(pool_paths, config["vlm_model"])
+    pool_scores = score_relevance_with_llm(pool_descs, effective_context, config["llm_model"])
+
+    for bad_path in low_score_paths:
+        if not pool_paths:
+            break
+        best_replacement = max(pool_paths, key=lambda p: pool_scores.get(p, 0))
+        idx = candidates.index(bad_path)
+        candidates[idx] = best_replacement
+        descriptions[best_replacement] = pool_descs[best_replacement]
+        del descriptions[bad_path]
+        pool_paths.remove(best_replacement)
 
 
 def run_stage0(image_paths: list[str], context: str, config: dict) -> dict:
@@ -141,13 +189,15 @@ def run_stage0(image_paths: list[str], context: str, config: dict) -> dict:
 
     Returns:
         {
-            "selected_paths": list[str],    # k paths after selection
-            "descriptions": dict[str, str], # path -> VLM description (ordered)
-            "ordered_paths": list[str],     # final time-ordered k paths
+            "selected_paths": list[str],     # k paths after selection
+            "descriptions": dict[str, str],  # path -> VLM description (ordered)
+            "ordered_paths": list[str],      # final time-ordered k paths
+            "effective_context": str,        # user context, or LLM-inferred theme if empty
         }
     """
     mode = config["mode"]
     k = config["k"]
+    descriptions: dict[str, str] = {}
 
     # Phase A: candidate selection
     if mode == "random":
@@ -157,14 +207,13 @@ def run_stage0(image_paths: list[str], context: str, config: dict) -> dict:
             image_paths, k, config["clip_model"], config["clip_pretrained"]
         )
     elif mode == "llm_only":
-        # Describe ALL images, score against context, pick top-k
         all_descs = describe_photos_with_vlm(image_paths, config["vlm_model"])
-        all_scores = score_relevance_with_llm(all_descs, context, config["llm_model"])
+        scoring_ctx = context or infer_theme_from_descriptions(all_descs, config["llm_model"])
+        all_scores = score_relevance_with_llm(all_descs, scoring_ctx, config["llm_model"])
         sorted_paths = sorted(all_scores, key=lambda p: all_scores[p], reverse=True)
         candidates = sorted_paths[:k]
         descriptions = {p: all_descs[p] for p in candidates}
     elif mode == "hybrid":
-        # CLIP clustering for diversity, then re-rank by LLM relevance score
         candidates = clip_cluster_select(
             image_paths, k, config["clip_model"], config["clip_pretrained"]
         )
@@ -175,31 +224,40 @@ def run_stage0(image_paths: list[str], context: str, config: dict) -> dict:
     if mode != "llm_only":
         descriptions = describe_photos_with_vlm(candidates, config["vlm_model"])
 
-    # Phase B: score and re-rank candidates for hybrid mode
-    if mode == "hybrid" and context:
-        scores = score_relevance_with_llm(descriptions, context, config["llm_model"])
-        # Replace any candidate scoring below 0.4 with the next-best from pool if available
-        low_score_paths = [p for p in candidates if scores.get(p, 1.0) < 0.4]
-        if low_score_paths:
-            pool_paths = [p for p in image_paths if p not in candidates]
-            if pool_paths:
-                pool_descs = describe_photos_with_vlm(pool_paths, config["vlm_model"])
-                pool_scores = score_relevance_with_llm(pool_descs, context, config["llm_model"])
-                for bad_path in low_score_paths:
-                    if pool_paths:
-                        best_replacement = max(pool_paths, key=lambda p: pool_scores.get(p, 0))
-                        idx = candidates.index(bad_path)
-                        candidates[idx] = best_replacement
-                        descriptions[best_replacement] = pool_descs[best_replacement]
-                        del descriptions[bad_path]
-                        pool_paths.remove(best_replacement)
+    # Determine effective context: fall back to LLM-inferred theme when user context is empty.
+    # Why: hybrid scoring + downstream stages need a non-empty topic to ground the story.
+    effective_context = context
+    if not effective_context and descriptions:
+        effective_context = infer_theme_from_descriptions(descriptions, config["llm_model"])
+        logger.info(
+            "Using inferred theme as effective context",
+            extra={"theme": effective_context},
+        )
+
+    # Phase B (cont.): hybrid re-rank using effective context
+    if mode == "hybrid" and effective_context:
+        scores = score_relevance_with_llm(descriptions, effective_context, config["llm_model"])
+        _replace_low_score_candidates(
+            candidates, descriptions, scores, image_paths, effective_context, config
+        )
 
     # Phase C: order by EXIF timestamp
     ordered = sort_by_exif(candidates)
     ordered_descriptions = {p: descriptions.get(p, "") for p in ordered}
 
+    logger.info(
+        "Stage 0 complete",
+        extra={
+            "mode": mode,
+            "k": k,
+            "selected": candidates,
+            "effective_context": effective_context,
+        },
+    )
+
     return {
         "selected_paths": candidates,
         "descriptions": ordered_descriptions,
         "ordered_paths": ordered,
+        "effective_context": effective_context,
     }

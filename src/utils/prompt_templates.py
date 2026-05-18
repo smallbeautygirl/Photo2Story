@@ -12,6 +12,20 @@ Photo description: "{description}"
 Rate how relevant this photo is to the storybook context on a scale from 0.0 to 1.0.
 Reply with ONLY a decimal number between 0.0 and 1.0, nothing else."""
 
+LLM_INFER_THEME = """\
+Below are short descriptions of {k} photos that share a moment, trip, or theme.
+
+{descriptions}
+
+In one short phrase (5-10 words), name the unifying activity, event, or theme these photos depict. Be specific and concrete.
+
+Reply with ONLY the phrase, no quotes, no trailing punctuation.
+
+Example replies:
+a child's first swimming lesson
+family visit to the apple orchard
+birthday party at the park"""
+
 LLM_INFER_ORDER = """\
 You have {k} photos from a personal trip. Their descriptions (in no particular order) are:
 
