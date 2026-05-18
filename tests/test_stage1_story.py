@@ -1,71 +1,77 @@
 # tests/test_stage1_story.py
-import sys
-import json
-import pytest
-from unittest.mock import MagicMock, patch
-
-torch = pytest.importorskip("torch")
 from src.stages.stage1_story import infer_causal_narrative, generate_story, run_stage1
 
 
-def _make_llm_mock(decode_output: str):
-    """Return fake AutoTokenizer and AutoModelForCausalLM."""
-    mock_tok = MagicMock()
-    mock_tok.return_value = {"input_ids": torch.zeros(1, 5, dtype=torch.long)}
-    mock_tok.decode.return_value = decode_output
-
-    mock_model = MagicMock()
-    mock_model.generate.return_value = torch.zeros(1, 10, dtype=torch.long)
-
-    mock_transformers = MagicMock()
-    mock_transformers.AutoTokenizer.from_pretrained.return_value = mock_tok
-    mock_transformers.AutoModelForCausalLM.from_pretrained.return_value = mock_model
-    return mock_transformers
-
-
 def test_infer_causal_narrative_returns_string(mocker):
-    mock_tr = _make_llm_mock("They went to the beach first, then had lunch.")
-    mocker.patch.dict(sys.modules, {"transformers": mock_tr})
-    mocker.patch("src.stages.stage1_story.torch.cuda.empty_cache")
-
+    mocker.patch(
+        "src.stages.stage1_story.generate_text",
+        return_value="They went to the beach first, then had lunch.",
+    )
     result = infer_causal_narrative(
         descriptions={"p1.jpg": "beach scene", "p2.jpg": "restaurant"},
         context="beach holiday",
-        model_name="Qwen/Qwen2.5-7B-Instruct",
+        model_name="gemini-2.5-flash",
     )
     assert isinstance(result, str)
     assert len(result) > 0
 
 
 def test_generate_story_returns_k_pages(mocker):
-    json_out = '["Once upon a time.", "They played all day.", "Finally they went home."]'
-    mock_tr = _make_llm_mock(json_out)
-    mocker.patch.dict(sys.modules, {"transformers": mock_tr})
-    mocker.patch("src.stages.stage1_story.torch.cuda.empty_cache")
+    mocker.patch(
+        "src.stages.stage1_story.generate_text",
+        return_value='["Once upon a time.", "They played all day.", "Finally they went home."]',
+    )
 
     result = generate_story(
         descriptions={"p1.jpg": "beach", "p2.jpg": "hotel", "p3.jpg": "food"},
         narrative="Fun trip narrative.",
         context="holiday",
         style="watercolor",
-        model_name="Qwen/Qwen2.5-7B-Instruct",
+        model_name="gemini-2.5-flash",
     )
     assert len(result) == 3
     assert all(isinstance(p, str) for p in result)
 
 
+def test_generate_story_strips_markdown_code_fence(mocker):
+    """LLM often wraps the JSON array in ```json ... ``` fences; parser must unwrap it."""
+    mocker.patch(
+        "src.stages.stage1_story.generate_text",
+        return_value=(
+            "**Page text:**\n"
+            "```json\n"
+            '["Once upon a time.", "They played all day.", "Finally they went home."]\n'
+            "```"
+        ),
+    )
+
+    result = generate_story(
+        descriptions={"p1.jpg": "a", "p2.jpg": "b", "p3.jpg": "c"},
+        narrative="arc",
+        context="ctx",
+        style="watercolor",
+        model_name="gemini-2.5-flash",
+    )
+    assert result == [
+        "Once upon a time.",
+        "They played all day.",
+        "Finally they went home.",
+    ]
+
+
 def test_generate_story_fallback_on_bad_json(mocker):
     """If LLM returns invalid JSON, fall back to line splitting."""
-    mock_tr = _make_llm_mock("Page one text.\nPage two text.\nPage three text.")
-    mocker.patch.dict(sys.modules, {"transformers": mock_tr})
-    mocker.patch("src.stages.stage1_story.torch.cuda.empty_cache")
+    mocker.patch(
+        "src.stages.stage1_story.generate_text",
+        return_value="Page one text.\nPage two text.\nPage three text.",
+    )
 
     result = generate_story(
         descriptions={"p1.jpg": "a", "p2.jpg": "b", "p3.jpg": "c"},
         narrative="arc",
         context="ctx",
         style="anime",
-        model_name="Qwen/Qwen2.5-7B-Instruct",
+        model_name="gemini-2.5-flash",
     )
     assert len(result) == 3
 
@@ -82,7 +88,7 @@ def test_run_stage1_with_causal_inference(mocker):
         "src.stages.stage1_story.generate_story",
         return_value=["Page 1.", "Page 2.", "Page 3."],
     )
-    config = {"model": "Qwen/Qwen2.5-7B-Instruct", "context_mode": "full", "use_causal_inference": True}
+    config = {"model": "gemini-2.5-flash", "context_mode": "full", "use_causal_inference": True}
 
     result = run_stage1(stage0_result, context="beach holiday", style="watercolor", config=config)
 
@@ -101,7 +107,7 @@ def test_run_stage1_without_causal_inference(mocker):
     mock_story = mocker.patch(
         "src.stages.stage1_story.generate_story", return_value=["Page 1.", "Page 2."]
     )
-    config = {"model": "Qwen/Qwen2.5-7B-Instruct", "context_mode": "full", "use_causal_inference": False}
+    config = {"model": "gemini-2.5-flash", "context_mode": "full", "use_causal_inference": False}
 
     result = run_stage1(stage0_result, context="trip", style="anime", config=config)
 

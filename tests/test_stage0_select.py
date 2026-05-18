@@ -90,6 +90,47 @@ def test_run_stage0_random_mode(tmp_images, demo_config, mocker):
     mock_describe.assert_called_once()  # still called to get descriptions
 
 
+def test_run_stage0_hybrid_empty_context_infers_theme(tmp_images, demo_config, mocker):
+    """When context is empty, hybrid mode should infer a theme and still run scoring."""
+    cfg = dict(demo_config["stage0"])
+    cfg["mode"] = "hybrid"
+
+    features = np.eye(5, 512).astype(np.float32)
+    mock_oc = _make_open_clip_mock(features)
+
+    mocker.patch(
+        "src.stages.stage0_select.describe_photos_with_vlm",
+        return_value={p: f"desc {i}" for i, p in enumerate(tmp_images[:4])},
+    )
+    mock_infer = mocker.patch(
+        "src.stages.stage0_select.infer_theme_from_descriptions",
+        return_value="a child's swimming lesson",
+    )
+    mock_score = mocker.patch(
+        "src.stages.stage0_select.score_relevance_with_llm",
+        return_value={p: 0.8 for p in tmp_images[:4]},
+    )
+
+    with patch.dict(sys.modules, {"open_clip": mock_oc}):
+        result = run_stage0(tmp_images, context="", config=cfg)
+
+    mock_infer.assert_called_once()
+    mock_score.assert_called_once()
+    assert result["effective_context"] == "a child's swimming lesson"
+
+
+def test_parse_score_handles_decorations():
+    """Score parser tolerates markdown / trailing commentary."""
+    from src.stages.stage0_select import _parse_score
+
+    assert _parse_score("0.85") == 0.85
+    assert _parse_score("**0.85**") == 0.85
+    assert _parse_score("0.85 (high relevance)") == 0.85
+    assert _parse_score("Score: 0.42") == 0.42
+    assert _parse_score("1.5") == 1.0  # clamped
+    assert _parse_score("nope") is None
+
+
 def test_run_stage0_hybrid_mode_calls_vlm_and_scores(tmp_images, demo_config, mocker):
     """hybrid mode calls VLM describe and LLM scoring."""
     cfg = dict(demo_config["stage0"])
