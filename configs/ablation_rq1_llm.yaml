@@ -2,11 +2,11 @@ stage0:
   mode: llm_only
   clip_model: ViT-B-32
   clip_pretrained: openai
-  vlm_model: Qwen/Qwen2-VL-2B-Instruct
-  llm_model: Qwen/Qwen2.5-7B-Instruct
+  vlm_model: gemini-2.5-flash
+  llm_model: gemini-2.5-flash
   k: 4
 stage1:
-  model: Qwen/Qwen2.5-7B-Instruct
+  model: gemini-2.5-flash
   context_mode: full
   use_causal_inference: false
 stage2:
