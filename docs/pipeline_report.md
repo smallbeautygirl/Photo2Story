@@ -29,11 +29,36 @@ flowchart LR
 ### 1.1 各階段的輸入 / 輸出契約
 
 | Stage | 輸入 | 輸出 | 技術棧 | 執行位置 |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | **0. Selection** | N 張照片 + context | k 張 ordered_paths + descriptions | CLIP, KMeans, Gemini VLM/LLM, piexif | 本地 + Vertex AI |
 | **1. Story** | descriptions, context, style, language | k 頁故事文字 + narrative | Gemini LLM (structured output) | Vertex AI |
 | **2. Illustration** | descriptions, style | k 張 PNG | Stable Diffusion 1.5 + IP-Adapter | 本地 CUDA GPU |
 | **3. Assembly** | 插畫 + 故事 + 描述 | PDF 檔 | ReportLab, PIL | 本地 CPU |
+
+### 1.2 ✅ 目前 demo 使用的模型配置
+
+> 來源：[`configs/demo.yaml`](../configs/demo.yaml)
+> 執行指令：`python run_experiment.py --config configs/demo.yaml --photos 'data/apple_swim/*.JPG' --output output`
+
+| Stage | 參數 | 目前 demo 值 | 備註 |
+| --- | --- | --- | --- |
+| **Stage 0** | `mode` | `hybrid` | CLIP 多樣化 + LLM relevance 替換 |
+| | `k` | `4` | 選 4 張照片成書 |
+| | `clip_model` | `ViT-B-32` | OpenCLIP 視覺編碼 |
+| | `clip_pretrained` | `openai` | OpenAI 原始預訓練權重 |
+| | `vlm_model` | `gemini-2.5-flash` | 描述照片用 |
+| | `llm_model` | `gemini-2.5-flash` | 評分 / 推主題用 |
+| **Stage 1** | `model` | `gemini-2.5-flash` | 故事生成（兩步式） |
+| | `context_mode` | `full` | 將完整 context 餵給 LLM |
+| | `use_causal_inference` | `true` | 啟用 narrative arc 兩步生成 |
+| **Stage 2** | `base_model` | `runwayml/stable-diffusion-v1-5` | 文字到圖片 |
+| | `use_ipadapter` | `true` | 啟用風格鎖定 |
+| | `use_stylealigned` | `false` | 暫未使用 StyleAligned |
+| | `style_image_path` | `null` | demo 未指定風格參考圖（IP-Adapter 走預設） |
+| **Stage 3** | `output_format` | `pdf` | A4 繪本 |
+| | `page_layout` | `image_top_text_bottom` | 上插畫、下文字 |
+
+**整體上**：demo 配置 = **「完整功能版本」**（hybrid 選圖 + causal inference + IP-Adapter 全開），用來展示 pipeline 端到端的最高品質輸出。Ablation 實驗會逐一關掉某項以量測貢獻。
 
 ---
 
@@ -46,7 +71,7 @@ flowchart LR
 ### 2.2 技術組成
 
 | 技術 | 用途 |
-|---|---|
+| --- | --- |
 | **OpenCLIP (ViT)** | 將照片編碼成 visual embedding（語意空間） |
 | **K-Means clustering** | 在 embedding 空間做群聚，每群取一張代表照 → 保證多樣性 |
 | **Gemini VLM** | 對每張照片生成英文描述（"who, what, where, mood"） |
@@ -56,7 +81,7 @@ flowchart LR
 ### 2.3 四種運作模式（Ablation 用）
 
 | Mode | Phase A 候選來源 | Phase B 是否評分 | Phase B 是否替換 |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | `random` | 隨機 k 張 | 否 | 否 |
 | `clip_only` | CLIP + KMeans 群心代表 | 否 | 否 |
 | `llm_only` | 對全部圖打分後取 top-k | 已內含 | 否 |
@@ -122,7 +147,7 @@ flowchart TD
 ### 3.2 技術組成
 
 | 技術 | 用途 |
-|---|---|
+| --- | --- |
 | **Gemini LLM (Vertex AI)** | 兩階段文字生成 |
 | **Structured output (`response_schema=list[str]`)** | 強制 LLM 回 JSON 陣列 |
 | **三層解析防禦** | regex 抓 code fence → 抓 `[...]` 切片 → fallback 按行切 |
@@ -179,7 +204,7 @@ flowchart TD
 ### 4.2 技術組成
 
 | 技術 | 用途 |
-|---|---|
+| --- | --- |
 | **Stable Diffusion 1.5**（HuggingFace `diffusers`） | 文字到圖片生成模型 |
 | **IP-Adapter（選用）** | 注入風格參考圖，鎖定全書畫風一致 |
 | **CUDA + fp16** | GPU 加速推論（每張約幾秒） |
@@ -251,7 +276,7 @@ flowchart TD
 ### 5.2 技術組成
 
 | 技術 | 用途 |
-|---|---|
+| --- | --- |
 | **ReportLab** | PDF 繪製（canvas API） |
 | **PIL** | 載入 PNG 並計算等比例縮放 |
 
@@ -288,7 +313,7 @@ flowchart TD
 ### 6.1 為什麼這樣分工？
 
 | 任務性質 | 適合的模型類別 | 本專案選擇 |
-|---|---|---|
+| --- | --- | --- |
 | 視覺語意編碼 / 多樣性 | CLIP-like | OpenCLIP |
 | 多模態描述 / 評分 / 推論 | VLM + LLM | Gemini (Vertex AI) |
 | 文字到圖片生成 | Diffusion | Stable Diffusion 1.5 |
@@ -305,7 +330,7 @@ flowchart TD
 本 pipeline 大量採用「配置驅動」設計，便於做控變實驗：
 
 | 開關 | 位置 | 比較目標 |
-|---|---|---|
+| --- | --- | --- |
 | `stage0.mode` | Stage 0 | random / clip_only / llm_only / hybrid 對最終品質的影響 |
 | `stage1.use_causal_inference` | Stage 1 | 兩步式 vs 單步式故事生成 |
 | `stage2.use_ipadapter` | Stage 2 | 有無風格參考圖的畫風一致性 |
@@ -372,7 +397,7 @@ flowchart TB
 ## 7. 已知限制（現況）
 
 | 限制 | 影響 |
-|---|---|
+| --- | --- |
 | SD 1.5 限制英文 prompt | 故事是中文/日文時，插畫仍須英文 prompt 中介 |
 | ReportLab Helvetica 不支援中文 | 中文故事 PDF 可能掉字 |
 | 本地 SD 需要 CUDA GPU | 無法純 CPU 部署 |
@@ -388,7 +413,7 @@ flowchart TB
 目前 Stage 1 已支援 BCP 47 locale code（`en` / `zh-tw` / `zh-cn` / `ja`），但端到端仍有缺口：
 
 | 項目 | 現況 | 改進計畫 |
-|---|---|---|
+| --- | --- | --- |
 | **故事文字多語產出** | Gemini 已支援，可正確輸出中/日文 | 加入更多語言（`ko`, `es`, `fr`）並對比品質 |
 | **PDF 字體** | Helvetica → 中文掉字 | 嵌入 Noto Sans CJK / 思源黑體，依 `language` 自動切字體 |
 | **插畫 prompt 翻譯** | 一律走英文（VLM 描述） | 測試是否需要將故事文字「翻譯回英文」融入 SD prompt，使插畫更貼故事而非僅貼照片 |
@@ -400,7 +425,7 @@ flowchart TB
 目前 `style` 參數是自由字串，僅做了少數測試。下次報告預計擴大為**風格矩陣實驗**：
 
 | 風格類別 | 預計測試風格 | 評估指標 |
-|---|---|---|
+| --- | --- | --- |
 | **西式繪本** | watercolor, crayon, gouache, pencil sketch | 風格一致性、兒童友善度 |
 | **動漫風格** | anime, Studio Ghibli, chibi | 角色穩定性、可愛感 |
 | **東方風格** | Chinese ink wash, ukiyo-e, traditional Japanese | 文化適配度 |
@@ -418,7 +443,7 @@ flowchart TB
 目前 ablation 仍靠人工觀察，下次預計加入：
 
 | 評估面向 | 方法 |
-|---|---|
+| --- | --- |
 | **故事品質** | LLM-as-judge（Gemini Pro 評分 coherence / creativity / age-appropriateness） |
 | **插畫-故事對齊度** | CLIPScore：每頁文字 vs 對應插畫的相似度 |
 | **畫風一致性** | 同本書 k 張插畫兩兩 CLIP image embedding 距離 |
