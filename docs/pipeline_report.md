@@ -3,7 +3,34 @@
 **日期**：2026-05-19
 **對應 commit**：`6a736ae` (feat(cli): produce per-run artifact bundle for ablation runs)
 
-> 將一組旅遊照片轉換成兒童繪本（含插畫 + 故事文字 + PDF）的四階段 pipeline。
+> 將一組旅遊照片轉換成兒童繪本（含插畫 + 故事文字 + PDF）的四階段流水線（pipeline）。
+
+---
+
+## 0. 縮寫與術語對照
+
+本報告為避免重複定義，所有縮寫第一次出現之後皆直接使用簡寫。
+
+| 縮寫 | 英文全名 | 中文說明 |
+| --- | --- | --- |
+| LLM | Large Language Model | 大型語言模型 |
+| VLM | Vision-Language Model | 視覺語言模型（可以「看圖說話」的模型） |
+| CLIP | Contrastive Language-Image Pretraining | 對比式語言-影像預訓練模型 |
+| SD | Stable Diffusion | Stability AI 的文字生圖擴散模型 |
+| IP-Adapter | Image Prompt Adapter | 影像提示轉接器，讓擴散模型可吃圖片當提示 |
+| RQ | Research Question | 研究問題（本專案規劃了三個 RQ） |
+| Ablation Study | — | 消融實驗：刻意關掉某元件以量測其貢獻 |
+| EXIF | Exchangeable Image File Format | 可交換圖像檔案格式，照片內建的拍攝資訊 |
+| BCP 47 | Best Current Practice 47 | 語言代碼標準（例如 `zh-tw`、`ja`） |
+| CFG | Classifier-Free Guidance | 無分類器引導，擴散模型推論時的提示遵循強度 |
+| CJK | Chinese-Japanese-Korean | 中日韓文字字集 |
+| fp16 | 16-bit Floating Point | 16 位元浮點數運算（節省顯示記憶體） |
+| VRAM | Video RAM | 顯示記憶體 |
+| OOM | Out of Memory | 記憶體不足 |
+| NSFW | Not Safe For Work | 不適宜公開的內容（成人 / 暴力等） |
+| CLIPScore | — | 以 CLIP 模型量測「文字-圖像對齊度」的指標 |
+| BLEU / BERTScore | — | 文字生成品質常用的自動評分指標 |
+| LPIPS | Learned Perceptual Image Patch Similarity | 學習式感知影像相似度（量影像差異） |
 
 ---
 
@@ -58,7 +85,7 @@ flowchart LR
 | **Stage 3** | `output_format` | `pdf` | A4 繪本 |
 | | `page_layout` | `image_top_text_bottom` | 上插畫、下文字 |
 
-**整體上**：demo 配置 = **「完整功能版本」**（hybrid 選圖 + causal inference + IP-Adapter 全開），用來展示 pipeline 端到端的最高品質輸出。Ablation 實驗會逐一關掉某項以量測貢獻。
+**整體上**：本次展示用的配置 = **「完整功能版本」**（混合式選圖 hybrid + 因果敘事推論 causal inference + IP-Adapter 全部啟用），用來呈現整條流水線端到端的最高品質輸出。後續的消融實驗（Ablation Study）會逐一關掉某項以量測其貢獻。
 
 ---
 
@@ -78,7 +105,7 @@ flowchart LR
 | **Gemini LLM** | (1) 對描述與 context 的相關性評分 (2) 在缺 context 時推論主題 |
 | **piexif** | 讀取 EXIF `DateTimeOriginal` 做時序排序 |
 
-### 2.3 四種運作模式（Ablation 用）
+### 2.3 四種運作模式（供消融實驗使用）
 
 | Mode | Phase A 候選來源 | Phase B 是否評分 | Phase B 是否替換 |
 | --- | --- | --- | --- |
@@ -325,16 +352,16 @@ flowchart TD
 - **雲端（Vertex AI Gemini）**：負責所有**文字 / 語意推論**任務。優點是無需本地維護大模型、品質高、多語支援好。
 - **本地 GPU（SD 1.5 + IP-Adapter）**：負責**圖像生成**。優點是 (1) 可用 IP-Adapter 等社群工具精細控制畫風（雲端 API 通常不支援），(2) 大量產圖（ablation 實驗）成本可控。
 
-### 6.3 Ablation 開關一覽
+### 6.3 消融實驗（Ablation Study）開關一覽
 
-本 pipeline 大量採用「配置驅動」設計，便於做控變實驗：
+本流水線大量採用「配置驅動」設計，便於做控制變因實驗：
 
 | 開關 | 位置 | 比較目標 |
 | --- | --- | --- |
-| `stage0.mode` | Stage 0 | random / clip_only / llm_only / hybrid 對最終品質的影響 |
-| `stage1.use_causal_inference` | Stage 1 | 兩步式 vs 單步式故事生成 |
-| `stage2.use_ipadapter` | Stage 2 | 有無風格參考圖的畫風一致性 |
-| `stage0.k`, `stage0.clip_model` | Stage 0 | 不同 k 值與不同 CLIP backbone 的效果 |
+| `stage0.mode` | Stage 0 | 隨機 / 純 CLIP / 純 LLM / 混合（hybrid）四種選圖策略對最終品質的影響 |
+| `stage1.use_causal_inference` | Stage 1 | 兩步式（先抽敘事弧再寫故事）vs 單步式故事生成 |
+| `stage2.use_ipadapter` | Stage 2 | 有無風格參考圖時的畫風一致性差異 |
+| `stage0.k`, `stage0.clip_model` | Stage 0 | 不同照片張數 k 與不同 CLIP 主幹（backbone）的效果 |
 
 ### 6.4 端到端 Pipeline 圖
 
@@ -440,7 +467,7 @@ flowchart TB
 
 ### 8.3 自動化評估框架
 
-目前 ablation 仍靠人工觀察，下次預計加入：
+目前消融實驗（Ablation Study）的結果仍靠人工觀察，下次預計加入以下自動評估指標：
 
 | 評估面向 | 方法 |
 | --- | --- |
