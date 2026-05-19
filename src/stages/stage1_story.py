@@ -44,6 +44,7 @@ def generate_story(
     narrative: str,
     context: str,
     style: str,
+    language: str,
     model_name: str,
 ) -> list[str]:
     """Step 2: Generate k-page story as a JSON list."""
@@ -52,9 +53,17 @@ def generate_story(
         f"Page {i+1}: {desc}" for i, desc in enumerate(descriptions.values())
     )
     prompt = LLM_STORY_GENERATION.format(
-        k=k, style=style, context=context, narrative=narrative, descriptions=desc_block
+        k=k,
+        style=style,
+        language=language,
+        context=context,
+        narrative=narrative,
+        descriptions=desc_block,
     )
-    logger.info("Generating story pages", extra={"model": model_name, "k": k, "style": style})
+    logger.info(
+        "Generating story pages",
+        extra={"model": model_name, "k": k, "style": style, "language": language},
+    )
     raw = generate_text(
         prompt,
         model_name,
@@ -77,7 +86,9 @@ def generate_story(
     return lines[:k]
 
 
-def run_stage1(stage0_result: dict, context: str, style: str, config: dict) -> dict:
+def run_stage1(
+    stage0_result: dict, context: str, style: str, language: str, config: dict
+) -> dict:
     """
     Returns:
         {"pages": list[str], "narrative": str}
@@ -89,5 +100,5 @@ def run_stage1(stage0_result: dict, context: str, style: str, config: dict) -> d
     if config["use_causal_inference"] and context:
         narrative = infer_causal_narrative(descriptions, context, model_name)
 
-    pages = generate_story(descriptions, narrative, context, style, model_name)
+    pages = generate_story(descriptions, narrative, context, style, language, model_name)
     return {"pages": pages, "narrative": narrative}

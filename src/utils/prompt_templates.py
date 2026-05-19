@@ -45,6 +45,7 @@ In 2-3 sentences, describe the narrative arc: what happened first, what was the 
 
 LLM_STORY_GENERATION = """\
 You are a children's storybook author. Write a {k}-page storybook in {style} style.
+Write the entire story in the language identified by BCP 47 locale code "{language}" (e.g. "en" = English, "zh-tw" = Traditional Chinese, "zh-cn" = Simplified Chinese, "ja" = Japanese).
 
 Trip context: "{context}"
 Narrative arc: "{narrative}"
@@ -57,13 +58,14 @@ Rules:
 - Each page: 2-3 sentences
 - Pages must connect naturally (reference what happened before)
 - Warm, child-friendly tone
+- All page text must be written in language "{language}" (BCP 47)
 - Return ONLY a JSON array of strings, one string per page
 
 Example format:
 ["Page 1 text here.", "Page 2 text here.", "Page 3 text here."]"""
 
 SD_PROMPT_TEMPLATE = (
-    "{page_text} "
+    "{scene} "
     "Children's storybook illustration, {style} art style, "
     "warm colors, detailed, high quality"
 )

@@ -17,9 +17,11 @@ class StoryPipeline:
         context: str,
         style: str,
         output_dir: str,
+        language: str = "en",
     ) -> dict:
         """
-        Run the full pipeline. Returns:
+        Run the full pipeline. `language` is a BCP 47 locale code for the story output.
+        Returns:
             {
                 "pdf_path": str,
                 "pages": list[str],
@@ -32,9 +34,20 @@ class StoryPipeline:
 
         stage0 = run_stage0(image_paths, context, self.config["stage0"])
         stage1_context = stage0.get("effective_context") or context
-        stage1 = run_stage1(stage0, stage1_context, style, self.config["stage1"])
-        stage2 = run_stage2(stage1, style, self.config["stage2"], str(out / "illustrations"))
-        stage3 = run_stage3(stage1, stage2, self.config["stage3"], str(out / "storybook.pdf"))
+        stage1 = run_stage1(stage0, stage1_context, style, language, self.config["stage1"])
+        ordered_descriptions = [
+            stage0["descriptions"].get(p, "") for p in stage0["ordered_paths"]
+        ]
+        stage2 = run_stage2(
+            ordered_descriptions, style, self.config["stage2"], str(out / "illustrations")
+        )
+        stage3 = run_stage3(
+            stage1,
+            stage2,
+            ordered_descriptions,
+            self.config["stage3"],
+            str(out / "storybook.pdf"),
+        )
 
         return {
             "pdf_path": stage3["pdf_path"],

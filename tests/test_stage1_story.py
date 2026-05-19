@@ -27,6 +27,7 @@ def test_generate_story_returns_k_pages(mocker):
         narrative="Fun trip narrative.",
         context="holiday",
         style="watercolor",
+        language="en",
         model_name="gemini-2.5-flash",
     )
     assert len(result) == 3
@@ -50,6 +51,7 @@ def test_generate_story_strips_markdown_code_fence(mocker):
         narrative="arc",
         context="ctx",
         style="watercolor",
+        language="en",
         model_name="gemini-2.5-flash",
     )
     assert result == [
@@ -71,6 +73,7 @@ def test_generate_story_fallback_on_bad_json(mocker):
         narrative="arc",
         context="ctx",
         style="anime",
+        language="zh-tw",
         model_name="gemini-2.5-flash",
     )
     assert len(result) == 3
@@ -90,7 +93,9 @@ def test_run_stage1_with_causal_inference(mocker):
     )
     config = {"model": "gemini-2.5-flash", "context_mode": "full", "use_causal_inference": True}
 
-    result = run_stage1(stage0_result, context="beach holiday", style="watercolor", config=config)
+    result = run_stage1(
+        stage0_result, context="beach holiday", style="watercolor", language="en", config=config
+    )
 
     assert result["pages"] == ["Page 1.", "Page 2.", "Page 3."]
     assert result["narrative"] == "They had a great trip."
@@ -109,7 +114,9 @@ def test_run_stage1_without_causal_inference(mocker):
     )
     config = {"model": "gemini-2.5-flash", "context_mode": "full", "use_causal_inference": False}
 
-    result = run_stage1(stage0_result, context="trip", style="anime", config=config)
+    result = run_stage1(
+        stage0_result, context="trip", style="anime", language="zh-tw", config=config
+    )
 
     assert result["narrative"] == ""
     mock_narrative.assert_not_called()

@@ -16,12 +16,17 @@ def _load_sd_pipeline(base_model: str):
 
 
 def generate_illustrations(
-    pages: list[str],
+    scenes: list[str],
     style: str,
     config: dict,
     output_dir: str,
 ) -> list[str]:
-    """Generate one illustration per page. Returns list of saved PNG paths."""
+    """Generate one illustration per page from English scene descriptions.
+
+    `scenes` are the VLM photo descriptions (English). Story page_text is intentionally
+    not used here: SD 1.5 was trained on English captions and degrades on non-English
+    prompts, so we keep the SD input in English regardless of the story language.
+    """
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
 
@@ -37,8 +42,8 @@ def generate_illustrations(
     negative = "blurry, ugly, bad anatomy, watermark, text, signature"
     saved_paths: list[str] = []
 
-    for i, page_text in enumerate(pages):
-        prompt = SD_PROMPT_TEMPLATE.format(page_text=page_text, style=style)
+    for i, scene in enumerate(scenes):
+        prompt = SD_PROMPT_TEMPLATE.format(scene=scene, style=style)
 
         if ip_model is not None and style_image is not None:
             images = ip_model.generate(
@@ -65,7 +70,9 @@ def generate_illustrations(
     return saved_paths
 
 
-def run_stage2(stage1_result: dict, style: str, config: dict, output_dir: str) -> dict:
+def run_stage2(
+    descriptions: list[str], style: str, config: dict, output_dir: str
+) -> dict:
     """Returns: {"illustration_paths": list[str]}"""
-    paths = generate_illustrations(stage1_result["pages"], style, config, output_dir)
+    paths = generate_illustrations(descriptions, style, config, output_dir)
     return {"illustration_paths": paths}

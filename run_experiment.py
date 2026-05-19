@@ -22,6 +22,11 @@ def main() -> None:
     parser.add_argument("--photos", required=True, help="Glob pattern for photos, e.g. 'data/*.jpg'")
     parser.add_argument("--context", default="", help="Trip context description")
     parser.add_argument("--style", default="watercolor")
+    parser.add_argument(
+        "--language",
+        default="en",
+        help="BCP 47 locale code for the story output language (e.g. en, zh-tw, zh-cn, ja, fr)",
+    )
     parser.add_argument("--output", required=True, help="Parent output directory (a per-run subdir is created inside)")
     args = parser.parse_args()
 
@@ -42,13 +47,16 @@ def main() -> None:
             "photo_count": len(image_paths),
             "context": args.context,
             "style": args.style,
+            "language": args.language,
             "run_dir": str(run_dir),
         },
     )
 
     cfg = load_config(args.config)
     pipeline = StoryPipeline(cfg)
-    result = pipeline.run(image_paths, args.context, args.style, str(run_dir))
+    result = pipeline.run(
+        image_paths, args.context, args.style, str(run_dir), language=args.language
+    )
 
     page_records = _build_page_records(result, run_dir)
 
@@ -57,6 +65,7 @@ def main() -> None:
         "context": args.context,
         "effective_context": result.get("effective_context", ""),
         "style": args.style,
+        "language": args.language,
         "narrative": result["narrative"],
         "selected_paths": result["selected_paths"],
         "pages": page_records,
@@ -119,6 +128,7 @@ def _render_pages_markdown(
         "",
         f"- **Config:** `{args.config}`",
         f"- **Style:** {args.style}",
+        f"- **Language:** {args.language}",
         f"- **User context:** {args.context or '(empty)'}",
         f"- **Effective context:** {meta.get('effective_context') or '(none)'}",
         f"- **Narrative arc:** {meta.get('narrative') or '(none)'}",

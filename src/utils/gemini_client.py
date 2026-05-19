@@ -57,17 +57,23 @@ def generate_text(
     model: str,
     max_output_tokens: int = 512,
     response_schema: type | None = None,
+    thinking_budget: int = 0,
 ) -> str:
     """Single-turn text generation. Returns the model's text reply (stripped).
 
     When `response_schema` is provided, the model is forced into JSON mode and the
     reply is a JSON document matching the schema (e.g. `list[str]`).
+
+    `thinking_budget` defaults to 0 (disabled). Gemini 2.5 counts thinking tokens
+    against `max_output_tokens`, so leaving thinking on silently truncates short
+    structured outputs.
     """
     from google.genai import types
 
     config_kwargs: dict = {
         "max_output_tokens": max_output_tokens,
         "temperature": 0.0,
+        "thinking_config": types.ThinkingConfig(thinking_budget=thinking_budget),
     }
     if response_schema is not None:
         config_kwargs["response_mime_type"] = "application/json"
@@ -86,6 +92,7 @@ def describe_image(
     prompt: str,
     model: str,
     max_output_tokens: int = 256,
+    thinking_budget: int = 0,
 ) -> str:
     """Multimodal: send one image + prompt, return the model's text reply."""
     from google.genai import types
@@ -100,6 +107,7 @@ def describe_image(
         config=types.GenerateContentConfig(
             max_output_tokens=max_output_tokens,
             temperature=0.0,
+            thinking_config=types.ThinkingConfig(thinking_budget=thinking_budget),
         ),
     )
     return (response.text or "").strip()
