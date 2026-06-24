@@ -10,6 +10,7 @@ stage1:
   model: gemini-2.5-flash
   context_mode: full
   use_causal_inference: true
+  reading_level: simple
 
 stage2:
   base_model: runwayml/stable-diffusion-v1-5

@@ -12,6 +12,7 @@ from pathlib import Path
 from src.config import load_config
 from src.core.logging import setup_logging
 from src.pipeline import StoryPipeline
+from src.utils.styles import available_styles
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +22,14 @@ def main() -> None:
     parser.add_argument("--config", required=True, help="Path to config yaml")
     parser.add_argument("--photos", required=True, help="Glob pattern for photos, e.g. 'data/*.jpg'")
     parser.add_argument("--context", default="", help="Trip context description")
-    parser.add_argument("--style", default="watercolor")
+    parser.add_argument(
+        "--style",
+        default="watercolor",
+        help=(
+            "Illustration style preset. Registered: "
+            f"{', '.join(available_styles())}. Unknown values are used as a free-form style."
+        ),
+    )
     parser.add_argument(
         "--language",
         default="en",

@@ -5,7 +5,12 @@ import logging
 import re
 
 from src.utils.gemini_client import generate_text
-from src.utils.prompt_templates import LLM_CAUSAL_INFERENCE, LLM_STORY_GENERATION
+from src.utils.prompt_templates import (
+    LLM_CAUSAL_INFERENCE,
+    LLM_STORY_GENERATION,
+    READING_LEVELS,
+)
+from src.utils.styles import resolve_style
 
 logger = logging.getLogger(__name__)
 
@@ -46,23 +51,35 @@ def generate_story(
     style: str,
     language: str,
     model_name: str,
+    reading_level: str = "standard",
 ) -> list[str]:
     """Step 2: Generate k-page story as a JSON list."""
     k = len(descriptions)
     desc_block = "\n".join(
         f"Page {i+1}: {desc}" for i, desc in enumerate(descriptions.values())
     )
+    level = READING_LEVELS.get(reading_level, READING_LEVELS["standard"])
     prompt = LLM_STORY_GENERATION.format(
         k=k,
-        style=style,
+        style=resolve_style(style).label,
         language=language,
         context=context,
         narrative=narrative,
         descriptions=desc_block,
+        age=level["age"],
+        sentences=level["sentences"],
+        length_hint=level["length_hint"],
+        vocab=level["vocab"],
     )
     logger.info(
         "Generating story pages",
-        extra={"model": model_name, "k": k, "style": style, "language": language},
+        extra={
+            "model": model_name,
+            "k": k,
+            "style": style,
+            "language": language,
+            "reading_level": reading_level,
+        },
     )
     raw = generate_text(
         prompt,
@@ -95,10 +112,13 @@ def run_stage1(
     """
     descriptions = stage0_result["descriptions"]
     model_name = config["model"]
+    reading_level = config.get("reading_level", "standard")
     narrative = ""
 
     if config["use_causal_inference"] and context:
         narrative = infer_causal_narrative(descriptions, context, model_name)
 
-    pages = generate_story(descriptions, narrative, context, style, language, model_name)
+    pages = generate_story(
+        descriptions, narrative, context, style, language, model_name, reading_level
+    )
     return {"pages": pages, "narrative": narrative}

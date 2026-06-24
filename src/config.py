@@ -1,4 +1,4 @@
-from typing import TypedDict, Literal, Union
+from typing import Literal, NotRequired, TypedDict, Union
 import yaml
 from pathlib import Path
 
@@ -16,6 +16,8 @@ class Stage1Config(TypedDict):
     model: str
     context_mode: Literal["none", "keyword", "full"]
     use_causal_inference: bool
+    # Controls story brevity / vocabulary; defaults to "standard" when omitted.
+    reading_level: NotRequired[Literal["simple", "standard"]]
 
 
 class Stage2Config(TypedDict):
