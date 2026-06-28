@@ -23,6 +23,7 @@ class StyleKey(StrEnum):
     WATERCOLOR = "watercolor"
     INK_WASH = "ink_wash"
     PIXAR = "pixar"
+    DISNEY = "disney"
     FLAT_PASTEL = "flat_pastel"
     CRAYON = "crayon"
 
@@ -39,6 +40,12 @@ class StylePreset:
     # (replaces base_model) or a LoRA loaded on top of base_model.
     model: str | None = None  # HF checkpoint id that replaces stage2.base_model
     lora: str | None = None  # HF LoRA repo id loaded on top of base_model
+    # The fal (hosted FLUX) backend ignores the SD fields above. FLUX wants
+    # natural-language style prompts rather than SD trigger tokens, so a preset
+    # supplies a FLUX-tuned fragment here; it falls back to sd_prompt when unset.
+    flux_prompt: str | None = None  # FLUX-tuned positive style fragment (leads the prompt)
+    flux_prompt_suffix: str | None = None  # trailing trigger text some LoRAs require
+    flux_lora: str | None = None  # HF FLUX LoRA repo id for the fal backend
 
 
 def _ref(key: StyleKey) -> Path:
@@ -54,6 +61,8 @@ STYLE_PRESETS: dict[str, StylePreset] = {
         negative="3d render, photorealistic, harsh shadows",
         style_image=_ref(StyleKey.GHIBLI),
         model="nitrosocke/Ghibli-Diffusion",
+        flux_prompt="Ghibli style, Studio Ghibli hand-drawn anime, soft watercolor backgrounds, gentle warm light",
+        flux_lora="openfree/flux-chatgpt-ghibli-lora",
     ),
     StyleKey.WATERCOLOR: StylePreset(
         key=StyleKey.WATERCOLOR,
@@ -77,6 +86,22 @@ STYLE_PRESETS: dict[str, StylePreset] = {
         negative="flat, 2d sketch, watercolor, rough pencil lines",
         style_image=_ref(StyleKey.PIXAR),
         model="nitrosocke/mo-di-diffusion",
+        # "Pixar 3D" is the trigger token of the Canopus Pixar FLUX LoRA.
+        flux_prompt="Pixar 3D, Pixar-style animated movie still, soft global illumination, "
+        "smooth subsurface shading, expressive large eyes, polished render",
+        flux_lora="prithivMLmods/Canopus-Pixar-3D-Flux-LoRA",
+    ),
+    StyleKey.DISNEY: StylePreset(
+        key=StyleKey.DISNEY,
+        label="classic Disney",
+        sd_prompt="classic Disney animation, hand-drawn 2D cartoon, soft cel shading, bright colors",
+        negative="3d render, photorealistic, harsh shadows",
+        style_image=_ref(StyleKey.DISNEY),
+        # The DisneyStyleLora trigger is a sentence pair wrapped around the scene.
+        flux_prompt="This is a digital illustration from a Disney animated film.",
+        flux_prompt_suffix="The overall style is typical of the classic Disney "
+        "animation style from the mid-20th century.",
+        flux_lora="tubbymeatball/DisneyStyleLora",
     ),
     StyleKey.FLAT_PASTEL: StylePreset(
         key=StyleKey.FLAT_PASTEL,
@@ -91,6 +116,8 @@ STYLE_PRESETS: dict[str, StylePreset] = {
         sd_prompt="children's crayon drawing, waxy textured strokes, naive hand-drawn, bright colors",
         negative="3d render, photorealistic, digital smoothness, sharp vector lines",
         style_image=_ref(StyleKey.CRAYON),
+        flux_prompt="a child's crayon drawing, waxy textured strokes, naive hand-drawn "
+        "style on paper, bright primary colors, picture-book look",
     ),
 }
 

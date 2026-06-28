@@ -25,11 +25,15 @@ class Stage2Config(TypedDict):
     use_ipadapter: bool
     use_stylealigned: bool
     style_image_path: str | None
+    # Image generation backend; defaults to local SD 1.5 when omitted.
+    backend: NotRequired[Literal["local", "fal"]]
 
 
 class Stage3Config(TypedDict):
     output_format: Literal["pdf"]
-    page_layout: Literal["image_top_text_bottom"]
+    page_layout: Literal["image_top_text_bottom", "full_bleed_caption"]
+    # Optional override for the CJK font file; auto-detected from the system when omitted.
+    font_path: NotRequired[str]
 
 
 class PipelineConfig(TypedDict):

@@ -13,6 +13,7 @@ stage1:
   reading_level: simple
 
 stage2:
+  backend: fal
   base_model: runwayml/stable-diffusion-v1-5
   use_ipadapter: true
   use_stylealigned: false
@@ -20,4 +21,4 @@ stage2:
 
 stage3:
   output_format: pdf
-  page_layout: image_top_text_bottom
+  page_layout: full_bleed_caption

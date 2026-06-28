@@ -9,7 +9,19 @@ from src.utils.styles import StylePreset, resolve_style
 
 logger = logging.getLogger(__name__)
 
-BASE_NEGATIVE = "blurry, ugly, bad anatomy, watermark, text, signature"
+BASE_NEGATIVE = (
+    "blurry, ugly, deformed, disfigured, mutated, malformed limbs, extra limbs, "
+    "extra fingers, fused fingers, bad hands, bad anatomy, bad proportions, "
+    "distorted face, deformed face, watermark, text, signature, "
+    # SD 1.5 mangles tight face crops; steer toward wider, gentler framing.
+    "close-up, extreme close-up, macro, giant face"
+)
+
+# A gentle, wider composition keeps faces small, which SD 1.5 renders far more reliably.
+FRAMING_HINT = "wide gentle scene, full figures, soft composition"
+
+INFERENCE_STEPS = 40
+GUIDANCE_SCALE = 8.5
 
 # CLIP encodes at most 77 tokens. The style fragment leads the prompt, so the
 # scene must stay short enough that the trailing quality words survive too.
@@ -87,7 +99,8 @@ def generate_illustrations(
 
     for i, scene in enumerate(scenes):
         prompt = SD_PROMPT_TEMPLATE.format(
-            scene=_cap_scene(scene), style_prompt=preset.sd_prompt
+            scene=_cap_scene(scene),
+            style_prompt=f"{preset.sd_prompt}, {FRAMING_HINT}",
         )
 
         if ip_model is not None and style_image is not None:
@@ -95,15 +108,15 @@ def generate_illustrations(
                 pil_image=style_image,
                 prompt=prompt,
                 negative_prompt=negative,
-                num_inference_steps=30,
-                guidance_scale=7.5,
+                num_inference_steps=INFERENCE_STEPS,
+                guidance_scale=GUIDANCE_SCALE,
             )
         else:
             images = pipe(
                 prompt=prompt,
                 negative_prompt=negative,
-                num_inference_steps=30,
-                guidance_scale=7.5,
+                num_inference_steps=INFERENCE_STEPS,
+                guidance_scale=GUIDANCE_SCALE,
             ).images
 
         out_path = str(output_path / f"page_{i+1:02d}.png")
@@ -118,6 +131,15 @@ def generate_illustrations(
 def run_stage2(
     descriptions: list[str], style: str, config: dict, output_dir: str
 ) -> dict:
-    """Returns: {"illustration_paths": list[str]}"""
-    paths = generate_illustrations(descriptions, style, config, output_dir)
+    """Returns: {"illustration_paths": list[str]}
+
+    Dispatches to the hosted FLUX backend when `stage2.backend` is "fal";
+    otherwise uses the local Stable Diffusion 1.5 pipeline.
+    """
+    if config.get("backend", "local") == "fal":
+        from src.stages.illustrate_fal import generate_illustrations_fal
+
+        paths = generate_illustrations_fal(descriptions, style, config, output_dir)
+    else:
+        paths = generate_illustrations(descriptions, style, config, output_dir)
     return {"illustration_paths": paths}

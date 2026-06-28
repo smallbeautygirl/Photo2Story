@@ -6,6 +6,7 @@ import glob
 import json
 import logging
 import os
+import re
 from datetime import datetime
 from pathlib import Path
 
@@ -38,7 +39,7 @@ def main() -> None:
     parser.add_argument("--output", required=True, help="Parent output directory (a per-run subdir is created inside)")
     args = parser.parse_args()
 
-    run_dir = _make_run_dir(args.output, args.config)
+    run_dir = _make_run_dir(args.output, args.config, args.style)
     log_file = setup_logging(run_dir / "run.log")
     print(f"Run dir: {run_dir}")
     print(f"Log file: {log_file}")
@@ -89,13 +90,20 @@ def main() -> None:
     print(f"Metadata: {meta_path}")
 
 
-def _make_run_dir(parent: str, config_path: str) -> Path:
-    """Create <parent>/<config-stem>_<YYYYmmdd_HHMMSS>/ and return it."""
+def _make_run_dir(parent: str, config_path: str, style: str) -> Path:
+    """Create <parent>/<config-stem>_<style>_<YYYYmmdd_HHMMSS>/ and return it."""
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    name = f"{Path(config_path).stem}_{stamp}"
+    style_slug = _slugify(style)
+    name = f"{Path(config_path).stem}_{style_slug}_{stamp}"
     run_dir = Path(parent) / name
     run_dir.mkdir(parents=True, exist_ok=True)
     return run_dir
+
+
+def _slugify(value: str) -> str:
+    """Make a value safe for a directory name: lowercase, non-alphanumerics to hyphens."""
+    slug = re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
+    return slug or "style"
 
 
 def _build_page_records(result: dict, run_dir: Path) -> list[dict]:
