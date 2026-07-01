@@ -25,7 +25,7 @@ def main() -> None:
     parser.add_argument("--context", default="", help="Trip context description")
     parser.add_argument(
         "--style",
-        default="watercolor",
+        default="ghibli",
         help=(
             "Illustration style preset. Registered: "
             f"{', '.join(available_styles())}. Unknown values are used as a free-form style."

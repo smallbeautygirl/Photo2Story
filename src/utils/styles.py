@@ -20,11 +20,8 @@ STYLE_REFS_DIR = Path("assets/style_refs")
 
 class StyleKey(StrEnum):
     GHIBLI = "ghibli"
-    WATERCOLOR = "watercolor"
-    INK_WASH = "ink_wash"
     PIXAR = "pixar"
     DISNEY = "disney"
-    FLAT_PASTEL = "flat_pastel"
     CRAYON = "crayon"
 
 
@@ -64,20 +61,6 @@ STYLE_PRESETS: dict[str, StylePreset] = {
         flux_prompt="Ghibli style, Studio Ghibli hand-drawn anime, soft watercolor backgrounds, gentle warm light",
         flux_lora="openfree/flux-chatgpt-ghibli-lora",
     ),
-    StyleKey.WATERCOLOR: StylePreset(
-        key=StyleKey.WATERCOLOR,
-        label="soft watercolor",
-        sd_prompt="soft watercolor painting, loose brush strokes, paper texture, pastel washes",
-        negative="3d render, photographic, hard black outlines",
-        style_image=_ref(StyleKey.WATERCOLOR),
-    ),
-    StyleKey.INK_WASH: StylePreset(
-        key=StyleKey.INK_WASH,
-        label="Chinese ink wash",
-        sd_prompt="Chinese ink wash painting, sumi-e, flowing brush strokes, rice paper, gray gradients",
-        negative="vivid saturated colors, 3d render, photographic",
-        style_image=_ref(StyleKey.INK_WASH),
-    ),
     StyleKey.PIXAR: StylePreset(
         key=StyleKey.PIXAR,
         # "modern disney style" is the trigger token of the mo-di-diffusion checkpoint.
@@ -102,13 +85,6 @@ STYLE_PRESETS: dict[str, StylePreset] = {
         flux_prompt_suffix="The overall style is typical of the classic Disney "
         "animation style from the mid-20th century.",
         flux_lora="tubbymeatball/DisneyStyleLora",
-    ),
-    StyleKey.FLAT_PASTEL: StylePreset(
-        key=StyleKey.FLAT_PASTEL,
-        label="flat pastel",
-        sd_prompt="flat vector illustration, clean geometric shapes, soft pastel palette, minimal shading",
-        negative="photorealistic, 3d render, gritty texture, harsh shadows",
-        style_image=_ref(StyleKey.FLAT_PASTEL),
     ),
     StyleKey.CRAYON: StylePreset(
         key=StyleKey.CRAYON,

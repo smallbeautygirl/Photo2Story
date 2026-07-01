@@ -23,7 +23,7 @@ def test_full_pipeline_smoke(tmp_path):
     result = pipeline.run(
         image_paths=image_paths,
         context="家庭出遊，爸媽帶兩個小孩去海邊",
-        style="watercolor",
+        style="ghibli",
         output_dir=str(tmp_path),
     )
 

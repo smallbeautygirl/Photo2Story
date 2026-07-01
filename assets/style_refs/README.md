@@ -5,10 +5,8 @@ Drop one reference image per registered style here, named `<style_key>.png`:
 | File | Style | Dedicated checkpoint? |
 | --- | --- | --- |
 | `ghibli.png` | Studio Ghibli / Miyazaki | ✅ `nitrosocke/Ghibli-Diffusion` |
-| `watercolor.png` | Soft watercolor | — (text + IP-Adapter) |
-| `ink_wash.png` | Chinese ink wash | — (text + IP-Adapter) |
 | `pixar.png` | 3D Pixar | ✅ `nitrosocke/mo-di-diffusion` |
-| `flat_pastel.png` | Flat pastel vector | — (text + IP-Adapter) |
+| `disney.png` | Classic Disney | — (text + IP-Adapter) |
 | `crayon.png` | Crayon drawing | — (text + IP-Adapter) |
 
 Stage 2 feeds the matching image into **IP-Adapter** so every page keeps one

@@ -26,7 +26,7 @@ def test_generate_story_returns_k_pages(mocker):
         descriptions={"p1.jpg": "beach", "p2.jpg": "hotel", "p3.jpg": "food"},
         narrative="Fun trip narrative.",
         context="holiday",
-        style="watercolor",
+        style="ghibli",
         language="en",
         model_name="gemini-2.5-flash",
     )
@@ -50,7 +50,7 @@ def test_generate_story_strips_markdown_code_fence(mocker):
         descriptions={"p1.jpg": "a", "p2.jpg": "b", "p3.jpg": "c"},
         narrative="arc",
         context="ctx",
-        style="watercolor",
+        style="ghibli",
         language="en",
         model_name="gemini-2.5-flash",
     )
@@ -94,7 +94,7 @@ def test_run_stage1_with_causal_inference(mocker):
     config = {"model": "gemini-2.5-flash", "context_mode": "full", "use_causal_inference": True}
 
     result = run_stage1(
-        stage0_result, context="beach holiday", style="watercolor", language="en", config=config
+        stage0_result, context="beach holiday", style="ghibli", language="en", config=config
     )
 
     assert result["pages"] == ["Page 1.", "Page 2.", "Page 3."]

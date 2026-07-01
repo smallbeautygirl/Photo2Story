@@ -23,7 +23,7 @@ def test_pipeline_run_calls_all_stages(tmp_path, demo_config, tmp_images, mocker
     result = pipeline.run(
         image_paths=tmp_images,
         context="北海道家庭旅遊",
-        style="watercolor",
+        style="ghibli",
         output_dir=str(tmp_path),
     )
 

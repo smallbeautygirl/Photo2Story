@@ -8,9 +8,9 @@ def test_resolve_style_returns_registered_preset():
     assert preset.sd_prompt
 
 
-def test_resolve_style_is_case_and_separator_insensitive():
-    assert resolve_style("Ink-Wash").key == StyleKey.INK_WASH
-    assert resolve_style("FLAT PASTEL").key == StyleKey.FLAT_PASTEL
+def test_resolve_style_is_case_insensitive():
+    assert resolve_style("PIXAR").key == StyleKey.PIXAR
+    assert resolve_style("Disney").key == StyleKey.DISNEY
 
 
 def test_resolve_style_falls_back_to_passthrough_for_unknown():
