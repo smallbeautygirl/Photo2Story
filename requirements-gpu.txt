@@ -1,0 +1,12 @@
+# GPU / local-model dependencies, optional.
+# Install with: pip install -r requirements-gpu.txt
+# Needed for local model inference (stage0_select, stage2_illustrate, model_manager).
+# Not required when only using API-based backends (google-genai, fal-client).
+
+torch>=2.1.0
+torchvision>=0.16.0
+transformers>=4.40.0,<5.0
+accelerate>=0.30.0,<2.0
+open_clip_torch>=2.24.0
+diffusers>=0.27.0
+ip-adapter>=0.1.0
