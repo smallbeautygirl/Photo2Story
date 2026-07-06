@@ -221,3 +221,6 @@ __marimo__/
 data/*
 output/*
 logs/
+
+# Superpowers brainstorm session state (ephemeral: ports, tokens, timestamps)
+.superpowers/brainstorm/

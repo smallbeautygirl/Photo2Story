@@ -4,7 +4,14 @@
       "Bash(uv run:*)",
       "Bash(git add:*)",
       "Bash(git commit -m ':*)",
-      "Bash(npm install:*)"
+      "Bash(npm install:*)",
+      "Bash(sed -i 's/style=\"watercolor\"/style=\"ghibli\"/g; s/style=watercolor/style=ghibli/g' tests/test_pipeline.py tests/test_stage1_story.py tests/test_e2e.py && grep -n \"watercolor\\\\|ghibli\" tests/test_pipeline.py tests/test_stage1_story.py tests/test_e2e.py)",
+      "Bash(python3 -m venv .venv)",
+      "Bash(git status *)"
+    ],
+    "additionalDirectories": [
+      "/home/vivian/.claude",
+      "/home/vivian/Documents/Photo2Story/tests"
     ]
   }
 }
