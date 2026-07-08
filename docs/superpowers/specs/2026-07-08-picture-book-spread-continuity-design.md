@@ -110,20 +110,30 @@ scoring rubric:
 
 | Category | Example from references |
 | --- | --- |
-| Recurring character/object | the watering can reappears across 企鵝 spreads |
+| Recurring character/object | the seed/sprout reappears and grows across 企鵝 spreads |
 | Consequence-of-prior-action | 我學會等待: "但是,某天早上,米亞沒有出來" continues yesterday's routine |
 | Setting persistence | same schoolyard across 陶樂蒂's spreads |
 | Emotional arc progression | crying → resolution across 陶樂蒂's spreads |
+| None | no detectable continuity — e.g. From Head to Toe's self-contained call-and-response animal units |
+
+The **None** category was added after coding the calibration set (see
+below): a judge forced to always pick one of the four positive categories
+would misclassify genuinely self-contained books (educational
+call-and-response board books) as having continuity they don't have.
+`narrative_continuity_judge.py` must accept `"none"` as a valid
+classification.
 
 ### Calibration set
 
-The captions already visible in the 15 captured 3-6 spreads (plus the 0-2
-references) are manually transcribed and hand-coded against the taxonomy
-for each adjacent pair (~14 transitions total). This produces a
-"professional baseline" continuity score to compare pipeline output
-against — the calibration set lives in
-`docs/eval/reference_continuity_calibration.md` (new file, plain
-markdown table: book, spread pair, category, notes).
+The captions already visible in the 15 captured 3-6 spreads, plus a sample
+from two 0-2 references (one strong positive — The Very Hungry
+Caterpillar's cumulative refrain — and one negative control — From Head to
+Toe's zero-continuity structure), are manually transcribed and hand-coded
+against the taxonomy above. This produces a "professional baseline"
+continuity score, including an explicit zero-continuity example, to
+compare pipeline output against. The calibration set lives in
+`docs/eval/reference_continuity_calibration.md` (14 coded transitions
+across 5 books, with a per-book dominant-mechanism summary).
 
 ### New eval script: `src/eval/narrative_continuity_judge.py`
 
@@ -165,6 +175,9 @@ RQ3 deliverable.
   spread's prompt.
 - `test_narrative_continuity_judge_classifies_adjacent_pairs` — mocked
   judge LLM call, asserts taxonomy category is returned per transition.
+- `test_narrative_continuity_judge_accepts_none_classification` — mocked
+  judge LLM call returning `"none"`, asserts it's accepted rather than
+  coerced into a positive category.
 - `test_narrative_continuity_judge_aggregates_book_level_score` — pure
   function test over a list of per-transition classifications.
 
