@@ -21,4 +21,4 @@ stage2:
 
 stage3:
   output_format: pdf
-  page_layout: full_bleed_caption
+  page_layout: picture_book_spread

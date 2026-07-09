@@ -26,3 +26,22 @@ def test_load_config_missing_stage(tmp_path):
     bad.write_text("stage0:\n  mode: hybrid\n")
     with pytest.raises(ValueError, match="missing required section"):
         load_config(bad)
+
+def test_stage3_accepts_picture_book_layout(tmp_path):
+    import yaml
+    from src.config import load_config
+
+    cfg = {
+        "stage0": {"mode": "random", "clip_model": "x", "clip_pretrained": "x",
+                   "vlm_model": "x", "llm_model": "x", "k": 2},
+        "stage1": {"model": "x", "context_mode": "none", "use_causal_inference": False},
+        "stage2": {"base_model": "x", "use_ipadapter": False, "use_stylealigned": False,
+                   "style_image_path": None},
+        "stage3": {"output_format": "pdf", "page_layout": "picture_book_spread"},
+    }
+    p = tmp_path / "cfg.yaml"
+    p.write_text(yaml.dump(cfg))
+
+    loaded = load_config(p)
+
+    assert loaded["stage3"]["page_layout"] == "picture_book_spread"

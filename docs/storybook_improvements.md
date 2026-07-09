@@ -89,33 +89,33 @@ stage2:
 真正的繪本是**滿版插圖**，文字直接疊在圖片上（caption band / 對話框），閱讀體驗完全不同。
 
 ### 做法
-新增 **full-bleed caption** 排版，取代舊的「image top / text bottom」：
+新增 **picture_book** 排版，取代舊的「image top / text bottom」與已棄用的 full-bleed scrim 設計：
 
-- `_draw_full_bleed_image()`：把插圖等比例放大到**滿版覆蓋整頁**（多餘部分裁切到頁緣外）。
-- `_draw_caption()`：在頁面底部畫一條**半透明黑色遮罩 (scrim)**，文字以白字置中疊在上面，確保任何底圖都讀得到字。
+- `_contain_fit_image()`：把插圖等比例縮放到**留白區內完整顯示**（不裁切，置中）。
+- 頁面切成**文字區**與**圖片區**兩塊；文字區高度整本書只算一次（取全書最長的斷行結果），確保每頁文字區大小、圖片位置一致。
+- 不使用半透明遮罩：文字直接畫在素色背景上，因為文字區與圖片區不重疊。
+- 文字區在上（top-band，~20pt，左靠）或在下（bottom-caption，~15pt，置中）由**全書**的 caption 長度決定，見 `_choose_layout_variant()`。
 
 對應程式碼：[`src/stages/stage3_assemble.py`](../src/stages/stage3_assemble.py)
-- `build_caption_pdf()`：滿版圖 + caption 疊字的新排版
+- `build_picture_book_pdf()`：單頁 picture_book 排版
+- `build_spread_pdf()`：雙頁跨頁（spread）版本，共用同一套幾何邏輯，只是寬度加倍
 - `build_pdf()`：保留舊的「上圖下字」排版（供 ablation baseline 對照）
-- `run_stage3()` 依 `config.page_layout` 切換：`full_bleed_caption` vs `image_top_text_bottom`
+- `run_stage3()` 依 `config.page_layout` 切換：`picture_book` / `picture_book_spread` / `image_top_text_bottom`
 
 排版常數（可調）：
 
 | 常數 | 預設 | 意義 |
 |---|---|---|
-| `CAPTION_FONT_SIZE` | 18 | 疊字字級 |
-| `CAPTION_LINE_HEIGHT` | 26 | 行高 |
-| `SCRIM_ALPHA` | 0.5 | 底部遮罩透明度（越高字越清楚、圖越被壓暗） |
-| `CAPTION_PAD_X / Y` | 1.5cm / 0.7cm | 文字與頁緣留白 |
+| `TOP_BAND_FONT_SIZE` | 20 | top-band 字級 |
+| `BOTTOM_CAPTION_FONT_SIZE` | 15 | bottom-caption 字級 |
+| `MAX_LINES_FOR_BOTTOM` | 2 | 超過幾行就改用 top-band |
+| `TEXT_ZONE_PAD` | 0.6cm | 文字區內邊距 |
+| `INTER_ZONE_GAP` | 0.3cm | 文字區與圖片區的間隔 |
 
 ```yaml
 stage3:
-  page_layout: full_bleed_caption   # 滿版插圖 + 底部疊字
+  page_layout: picture_book_spread   # 雙頁跨頁：滿版寬幅插圖 + 版位固定的文字區
 ```
-
-> **後續可延伸**：目前疊字固定在底部 scrim。若要更接近繪本，可再支援
-> 「對話框 / 特定圖案內的文字」——例如依場景把 caption 放到圖中留白區、或畫成對話泡泡。
-> 這會是排版的下一步，但不在本次三項調整範圍內。
 
 ---
 
@@ -128,7 +128,7 @@ stage2:
   backend: fal                      # ② 畫風：4 種大師風格 (ghibli/pixar/disney/crayon) + FLUX LoRA
   use_ipadapter: true
 stage3:
-  page_layout: full_bleed_caption   # ③ 排版：滿版插圖 + 文字疊圖
+  page_layout: picture_book_spread  # ③ 排版：雙頁跨頁 + 版位固定的文字區
 ```
 
 | 調整 | 核心檔案 | 控制開關 |

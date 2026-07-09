@@ -31,7 +31,7 @@ class Stage2Config(TypedDict):
 
 class Stage3Config(TypedDict):
     output_format: Literal["pdf"]
-    page_layout: Literal["image_top_text_bottom", "full_bleed_caption"]
+    page_layout: Literal["image_top_text_bottom", "picture_book", "picture_book_spread"]
     # Optional override for the CJK font file; auto-detected from the system when omitted.
     font_path: NotRequired[str]
 
