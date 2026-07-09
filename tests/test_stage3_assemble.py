@@ -109,3 +109,36 @@ def test_build_picture_book_pdf_wrong_count_raises(tmp_path, tmp_images):
 
     with pytest.raises(AssertionError):
         build_picture_book_pdf(tmp_images[:2], ["Only one page."], str(tmp_path / "bad.pdf"))
+
+
+def test_build_spread_pdf_creates_file(tmp_path, tmp_images):
+    from src.stages.stage3_assemble import build_spread_pdf
+
+    pages = ["Once upon a time.", "They had fun.", "The end."]
+    out_path = str(tmp_path / "spread.pdf")
+
+    build_spread_pdf(tmp_images[:3], pages, out_path)
+
+    assert Path(out_path).exists()
+    assert Path(out_path).stat().st_size > 1000
+
+
+def test_build_spread_pdf_wrong_count_raises(tmp_path, tmp_images):
+    from src.stages.stage3_assemble import build_spread_pdf
+
+    with pytest.raises(AssertionError):
+        build_spread_pdf(tmp_images[:2], ["Only one page."], str(tmp_path / "bad.pdf"))
+
+
+def test_build_spread_pdf_uses_double_width_page(tmp_path, tmp_images):
+    """A spread PDF's page must be twice the width of a single picture_book page."""
+    import pypdf
+
+    from src.stages.stage3_assemble import PAGE_W, build_spread_pdf
+
+    out_path = str(tmp_path / "spread_size.pdf")
+    build_spread_pdf(tmp_images[:2], ["One.", "Two."], out_path)
+
+    reader = pypdf.PdfReader(out_path)
+    page_width_pt = float(reader.pages[0].mediabox.width)
+    assert abs(page_width_pt - 2 * PAGE_W) < 1.0

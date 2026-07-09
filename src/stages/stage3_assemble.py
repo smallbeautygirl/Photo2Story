@@ -228,6 +228,26 @@ def build_picture_book_pdf(
     c.save()
 
 
+def build_spread_pdf(
+    illustration_paths: list[str],
+    pages: list[str],
+    output_path: str,
+    font_path: str | None = None,
+) -> None:
+    """Build a picture-book PDF where each page is a double-page spread (one wide
+    illustration spanning two A4 widths at one A4 height). Reuses the same
+    top-band/bottom-caption geometry as `build_picture_book_pdf`, re-measured at
+    the spread's doubled width.
+    """
+    build_picture_book_pdf(
+        illustration_paths,
+        pages,
+        output_path,
+        font_path,
+        page_size=(SPREAD_PAGE_W, SPREAD_PAGE_H),
+    )
+
+
 def _draw_section(c: canvas.Canvas, label: str, text: str, body_font: str, top_y: float) -> float:
     """Draw a labeled text block starting at `top_y`. Returns the new y after the block."""
     c.setFont(HEADER_FONT, HEADER_SIZE)
@@ -288,6 +308,13 @@ def run_stage3(
     layout = config.get("page_layout", "image_top_text_bottom")
     if layout == "picture_book":
         build_picture_book_pdf(
+            stage2_result["illustration_paths"],
+            stage1_result["pages"],
+            output_path,
+            config.get("font_path"),
+        )
+    elif layout == "picture_book_spread":
+        build_spread_pdf(
             stage2_result["illustration_paths"],
             stage1_result["pages"],
             output_path,
