@@ -39,6 +39,11 @@ GUIDANCE_SCALE = 3.5
 SPREAD_IMAGE_SIZE = {"width": 1408, "height": 992}
 LORA_SCALE = 1.0
 
+# Character/setting continuity: cap how much of the combined per-photo
+# descriptions gets folded into every spread's prompt, so it stays a light
+# continuity nudge rather than crowding out that spread's own scene.
+CHARACTER_REF_WORD_CAP = 60
+
 # FLUX occasionally returns an all-black frame (a NaN glitch on a bad seed).
 # Re-running picks a fresh seed, so retry a few times before giving up.
 MAX_ATTEMPTS = 3
@@ -57,18 +62,43 @@ def _is_blank(image_bytes: bytes) -> bool:
     return max(channel_max for _, channel_max in extrema) <= BLANK_MAX_LEVEL
 
 
-def _build_prompt(scene: str, preset: StylePreset) -> str:
+def _build_character_reference(descriptions: list[str]) -> str:
+    """Combine all photo descriptions into one continuity string, deduped and
+    capped, so every spread's prompt carries the same characters/setting.
+
+    No new LLM call: reuses the per-photo descriptions already produced by
+    stage0_select and passed in as `scenes`.
+    """
+    seen: list[str] = []
+    for description in descriptions:
+        description = description.strip()
+        if description and description not in seen:
+            seen.append(description)
+    combined = " ".join(seen)
+    words = combined.split()
+    if len(words) > CHARACTER_REF_WORD_CAP:
+        combined = " ".join(words[:CHARACTER_REF_WORD_CAP])
+    return combined
+
+
+def _build_prompt(scene: str, preset: StylePreset, character_ref: str = "") -> str:
     """Compose the FLUX prompt.
 
     FLUX uses a T5 encoder (~512 tokens), so unlike the SD 1.5 path we do not trim
     the scene. The FLUX-tuned style fragment is preferred; it falls back to the SD
     fragment for presets that have not been tuned for FLUX yet. Some LoRAs also
     require a trailing trigger sentence, appended via flux_prompt_suffix.
+
+    `character_ref`, when given, is a book-wide continuity string (see
+    `_build_character_reference`) appended so recurring characters/settings stay
+    descriptively consistent across independently generated spreads.
     """
     style_prompt = preset.flux_prompt or preset.sd_prompt
     prompt = SD_PROMPT_TEMPLATE.format(scene=scene, style_prompt=style_prompt)
     if preset.flux_prompt_suffix:
         prompt = f"{prompt} {preset.flux_prompt_suffix}"
+    if character_ref:
+        prompt = f"{prompt} Recurring characters and setting across the book: {character_ref}."
     return prompt
 
 
@@ -103,10 +133,11 @@ def generate_illustrations_fal(
         },
     )
 
+    character_ref = _build_character_reference(scenes)
     saved_paths: list[str] = []
     for i, scene in enumerate(scenes):
         arguments: dict = {
-            "prompt": _build_prompt(scene, preset),
+            "prompt": _build_prompt(scene, preset, character_ref),
             "image_size": SPREAD_IMAGE_SIZE,
             "num_inference_steps": INFERENCE_STEPS,
             "guidance_scale": GUIDANCE_SCALE,

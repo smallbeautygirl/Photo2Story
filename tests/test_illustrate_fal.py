@@ -80,7 +80,9 @@ def test_disney_prompt_appends_trigger_suffix(fake_fal, tmp_path):
 
     prompt = fake_fal[0][1]["prompt"]
     assert prompt.startswith("This is a digital illustration from a Disney")
-    assert prompt.rstrip().endswith("mid-20th century.")
+    # The trigger sentence is no longer necessarily the last text in the prompt:
+    # the cross-spread character/setting continuity string is appended after it.
+    assert "mid-20th century." in prompt
 
 
 def test_one_image_saved_per_scene(fake_fal, tmp_path):
@@ -149,3 +151,25 @@ def test_landscape_spread_aspect_ratio_used(fake_fal, tmp_path):
     _, arguments = fake_fal[0]
     assert arguments["image_size"] == illustrate_fal.SPREAD_IMAGE_SIZE
     assert illustrate_fal.SPREAD_IMAGE_SIZE["width"] > illustrate_fal.SPREAD_IMAGE_SIZE["height"]
+
+
+def test_build_character_reference_dedupes_and_caps():
+    from src.stages.illustrate_fal import CHARACTER_REF_WORD_CAP, _build_character_reference
+
+    scenes = ["a red bike"] * 3 + [" ".join(f"word{i}" for i in range(100))]
+    ref = _build_character_reference(scenes)
+
+    assert ref.count("a red bike") == 1
+    assert len(ref.split()) <= CHARACTER_REF_WORD_CAP
+
+
+def test_prompt_includes_character_reference_from_other_pages(fake_fal, tmp_path):
+    scenes = [
+        "a girl in a red hat playing on a swing",
+        "a girl in a red hat eating ice cream",
+    ]
+    generate_illustrations_fal(scenes, "crayon", {}, str(tmp_path))
+
+    page_2_prompt = fake_fal[1][1]["prompt"]
+    assert "eating ice cream" in page_2_prompt
+    assert "playing on a swing" in page_2_prompt
