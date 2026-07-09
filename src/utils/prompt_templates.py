@@ -78,7 +78,7 @@ Rules:
 - Write exactly {k} pages
 - Each page: {sentences} ({length_hint})
 - {vocab}
-- Pages must connect naturally (reference what happened before)
+- Pages must connect naturally: use techniques like a recurring character or object reappearing, a consequence following from the previous page's event, or the same setting carrying across pages -- vary which technique you use rather than repeating one every page
 - Warm, child-friendly tone
 - All page text must be written in language "{language}" (BCP 47)
 - Return ONLY a JSON array of strings, one string per page

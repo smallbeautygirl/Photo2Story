@@ -121,3 +121,23 @@ def test_run_stage1_without_causal_inference(mocker):
     assert result["narrative"] == ""
     mock_narrative.assert_not_called()
     mock_story.assert_called_once()
+
+
+def test_generate_story_prompt_mentions_continuity_techniques(mocker):
+    mock_generate = mocker.patch(
+        "src.stages.stage1_story.generate_text",
+        return_value='["A.", "B.", "C."]',
+    )
+
+    generate_story(
+        descriptions={"p1.jpg": "a", "p2.jpg": "b", "p3.jpg": "c"},
+        narrative="arc",
+        context="ctx",
+        style="ghibli",
+        language="en",
+        model_name="gemini-2.5-flash",
+    )
+
+    prompt = mock_generate.call_args[0][0]
+    assert "recurring character" in prompt
+    assert "consequence" in prompt
