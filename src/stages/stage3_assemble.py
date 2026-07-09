@@ -119,52 +119,111 @@ def _choose_layout_variant(
     return "bottom_caption"
 
 
-def _draw_full_bleed_image(c: canvas.Canvas, img_path: str) -> None:
-    """Scale the illustration to cover the whole page (cropping overflow off the page edges)."""
+def _contain_fit_image(
+    c: canvas.Canvas, img_path: str, x: float, y: float, w: float, h: float
+) -> None:
+    """Scale the illustration to fit within (w, h) without cropping, centered in the zone."""
     img = Image.open(img_path).convert("RGB")
     img_w, img_h = img.size
-    scale = max(PAGE_W / img_w, PAGE_H / img_h)
+    scale = min(w / img_w, h / img_h)
     draw_w, draw_h = img_w * scale, img_h * scale
-    x = (PAGE_W - draw_w) / 2
-    y = (PAGE_H - draw_h) / 2
-    c.drawImage(ImageReader(img), x, y, width=draw_w, height=draw_h)
+    draw_x = x + (w - draw_w) / 2
+    draw_y = y + (h - draw_h) / 2
+    c.drawImage(ImageReader(img), draw_x, draw_y, width=draw_w, height=draw_h)
 
 
-def _draw_caption(c: canvas.Canvas, text: str, font: str) -> None:
-    """Draw the story text in a semi-transparent scrim across the bottom of the page."""
-    max_width = PAGE_W - 2 * CAPTION_PAD_X
-    lines = _wrap_to_width(text, font, CAPTION_FONT_SIZE, max_width) or [""]
-    scrim_h = 2 * CAPTION_PAD_Y + len(lines) * CAPTION_LINE_HEIGHT
+def _text_zone_height(pages: list[str], font: str, font_size: float, page_width: float) -> float:
+    """Height of the text zone, sized to the longest wrapped caption across all pages.
 
+    Computed once per book so every page reserves an identically sized band.
+    """
+    max_width = page_width - 2 * MARGIN
+    line_height = font_size * 1.3
+    max_lines = max(
+        (len(_wrap_to_width(p, font, font_size, max_width)) or 1 for p in pages),
+        default=1,
+    )
+    return 2 * TEXT_ZONE_PAD + max_lines * line_height
+
+
+def _draw_zone_text(
+    c: canvas.Canvas,
+    text: str,
+    font: str,
+    font_size: float,
+    x: float,
+    top_y: float,
+    w: float,
+    align: Literal["left", "center"],
+) -> None:
+    """Draw wrapped text with its first line's baseline just below `top_y`."""
+    lines = _wrap_to_width(text, font, font_size, w) or [""]
+    line_height = font_size * 1.3
     c.setFillColor(colors.black)
-    c.setFillAlpha(SCRIM_ALPHA)
-    c.rect(0, 0, PAGE_W, scrim_h, fill=1, stroke=0)
-
-    c.setFillAlpha(1)
-    c.setFillColor(colors.white)
-    c.setFont(font, CAPTION_FONT_SIZE)
-    y = scrim_h - CAPTION_PAD_Y - CAPTION_FONT_SIZE
+    c.setFont(font, font_size)
+    cursor_y = top_y - font_size
     for line in lines:
-        c.drawCentredString(PAGE_W / 2, y, line)
-        y -= CAPTION_LINE_HEIGHT
+        if align == "center":
+            c.drawCentredString(x + w / 2, cursor_y, line)
+        else:
+            c.drawString(x, cursor_y, line)
+        cursor_y -= line_height
 
 
-def build_caption_pdf(
+def _draw_picture_book_page(
+    c: canvas.Canvas,
+    img_path: str,
+    page_text: str,
+    font: str,
+    variant: Literal["top_band", "bottom_caption"],
+    text_h: float,
+    page_w: float,
+    page_h: float,
+) -> None:
+    """Draw one page/spread: a text zone (top or bottom) and a contain-fit image
+    filling the rest, with a small gap so text never touches the art."""
+    content_w = page_w - 2 * MARGIN
+    if variant == "top_band":
+        text_top_y = page_h - MARGIN
+        _draw_zone_text(
+            c, page_text, font, TOP_BAND_FONT_SIZE, MARGIN, text_top_y, content_w, "left"
+        )
+        image_h = page_h - MARGIN - text_h - INTER_ZONE_GAP - MARGIN
+        _contain_fit_image(c, img_path, MARGIN, MARGIN, content_w, image_h)
+    else:
+        image_y = MARGIN + text_h + INTER_ZONE_GAP
+        image_h = page_h - MARGIN - image_y
+        _contain_fit_image(c, img_path, MARGIN, image_y, content_w, image_h)
+        text_top_y = MARGIN + text_h
+        _draw_zone_text(
+            c, page_text, font, BOTTOM_CAPTION_FONT_SIZE, MARGIN, text_top_y, content_w, "center"
+        )
+
+
+def build_picture_book_pdf(
     illustration_paths: list[str],
     pages: list[str],
     output_path: str,
     font_path: str | None = None,
+    page_size: tuple[float, float] = A4,
 ) -> None:
-    """Build a picture-book PDF: each page is a full-bleed illustration with the story
-    text overlaid in a caption band, the way a real storybook reads."""
+    """Build a picture-book PDF: image contain-fit into a reserved zone, caption text
+    in a plain-background zone outside the image that never overlaps it. The
+    top-band-vs-bottom-caption choice and the text zone's height are both computed
+    once per book, so every page/spread reserves an identically sized, positioned zone.
+    """
     assert len(illustration_paths) == len(pages), (
         f"Mismatch: {len(illustration_paths)} illustrations vs {len(pages)} pages"
     )
     font = _resolve_cjk_font(font_path)
-    c = canvas.Canvas(output_path, pagesize=A4)
+    page_w, page_h = page_size
+    variant = _choose_layout_variant(pages, font, page_w)
+    font_size = TOP_BAND_FONT_SIZE if variant == "top_band" else BOTTOM_CAPTION_FONT_SIZE
+    text_h = _text_zone_height(pages, font, font_size, page_w)
+
+    c = canvas.Canvas(output_path, pagesize=page_size)
     for img_path, page_text in zip(illustration_paths, pages):
-        _draw_full_bleed_image(c, img_path)
-        _draw_caption(c, page_text, font)
+        _draw_picture_book_page(c, img_path, page_text, font, variant, text_h, page_w, page_h)
         c.showPage()
     c.save()
 
@@ -227,8 +286,8 @@ def run_stage3(
 ) -> dict:
     """Returns: {"pdf_path": str}"""
     layout = config.get("page_layout", "image_top_text_bottom")
-    if layout == "full_bleed_caption":
-        build_caption_pdf(
+    if layout == "picture_book":
+        build_picture_book_pdf(
             stage2_result["illustration_paths"],
             stage1_result["pages"],
             output_path,

@@ -60,3 +60,52 @@ def test_choose_layout_variant_uses_spread_width():
 
     assert narrow_result == "top_band"
     assert very_wide_result == "bottom_caption"
+
+
+def test_text_zone_height_scales_with_longest_caption():
+    from src.stages.stage3_assemble import _text_zone_height, TOP_BAND_FONT_SIZE, PAGE_W
+
+    short_only = _text_zone_height(["Hi.", "Bye."], "Helvetica", TOP_BAND_FONT_SIZE, PAGE_W)
+    with_long = _text_zone_height(
+        ["Hi.", "This is a much longer caption that wraps across several lines of text."],
+        "Helvetica",
+        TOP_BAND_FONT_SIZE,
+        PAGE_W,
+    )
+    assert with_long > short_only
+
+
+def test_build_picture_book_pdf_creates_file_bottom_caption(tmp_path, tmp_images):
+    from src.stages.stage3_assemble import build_picture_book_pdf
+
+    pages = ["Once upon a time.", "They had fun.", "The end."]
+    out_path = str(tmp_path / "picture_book_bottom.pdf")
+
+    build_picture_book_pdf(tmp_images[:3], pages, out_path)
+
+    assert Path(out_path).exists()
+    assert Path(out_path).stat().st_size > 1000
+
+
+def test_build_picture_book_pdf_creates_file_top_band(tmp_path, tmp_images):
+    from src.stages.stage3_assemble import build_picture_book_pdf
+
+    long_caption = (
+        "This is a very long caption that will definitely need more than two "
+        "lines when wrapped at the page width because it just keeps going and "
+        "going."
+    )
+    pages = [long_caption, "Short.", "The end."]
+    out_path = str(tmp_path / "picture_book_top.pdf")
+
+    build_picture_book_pdf(tmp_images[:3], pages, out_path)
+
+    assert Path(out_path).exists()
+    assert Path(out_path).stat().st_size > 1000
+
+
+def test_build_picture_book_pdf_wrong_count_raises(tmp_path, tmp_images):
+    from src.stages.stage3_assemble import build_picture_book_pdf
+
+    with pytest.raises(AssertionError):
+        build_picture_book_pdf(tmp_images[:2], ["Only one page."], str(tmp_path / "bad.pdf"))
