@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from typing import Literal
 
 from PIL import Image
 from reportlab.lib import colors
@@ -25,12 +26,16 @@ HEADER_SIZE = 12
 LINE_HEIGHT = 16
 SECTION_GAP = 0.4 * cm
 
-# --- Full-bleed caption layout constants ---
-CAPTION_FONT_SIZE = 18
-CAPTION_LINE_HEIGHT = 26
-CAPTION_PAD_X = 1.5 * cm
-CAPTION_PAD_Y = 0.7 * cm
-SCRIM_ALPHA = 0.5
+# --- picture_book layout constants (shared by single-page and spread variants) ---
+TOP_BAND_FONT_SIZE = 20
+BOTTOM_CAPTION_FONT_SIZE = 15
+MAX_LINES_FOR_BOTTOM = 2
+TEXT_ZONE_PAD = 0.6 * cm
+INTER_ZONE_GAP = 0.3 * cm
+
+# --- picture_book_spread geometry: one PDF page per spread (two A4 widths, one A4 height) ---
+SPREAD_PAGE_W = 2 * PAGE_W
+SPREAD_PAGE_H = PAGE_H
 
 # ReportLab's TTFont only embeds TrueType (glyf) outlines, so Noto Sans CJK's
 # CFF .ttc files fail to load. AR PL UMing TW is a glyf-based CJK font that works.
@@ -95,6 +100,23 @@ def _wrap_to_width(text: str, font: str, size: float, max_width: float) -> list[
     if current:
         lines.append(current)
     return lines
+
+
+def _choose_layout_variant(
+    pages: list[str], font: str, page_width: float
+) -> Literal["top_band", "bottom_caption"]:
+    """Decide once per book: top-band for long captions, bottom-caption for short ones.
+
+    Every page's caption is wrapped at `page_width` using the top-band font size as a
+    fixed yardstick, regardless of which variant is ultimately chosen -- this keeps the
+    decision a pure text-length measurement that never depends on the chosen variant.
+    """
+    max_width = page_width - 2 * MARGIN
+    for page_text in pages:
+        lines = _wrap_to_width(page_text, font, TOP_BAND_FONT_SIZE, max_width)
+        if len(lines) > MAX_LINES_FOR_BOTTOM:
+            return "top_band"
+    return "bottom_caption"
 
 
 def _draw_full_bleed_image(c: canvas.Canvas, img_path: str) -> None:
