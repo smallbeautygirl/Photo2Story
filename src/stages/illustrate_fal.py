@@ -35,7 +35,8 @@ FAL_LORA_ENDPOINT = "fal-ai/flux-lora"
 INFERENCE_STEPS = 28
 GUIDANCE_SCALE = 3.5
 # Landscape ratio matching an A4 spread (two 210mm-wide portrait pages at 297mm
-# height, ~1.4141:1) so one FLUX call renders a full spread instead of one page.
+# height, ideally ~1.4141:1). Rounded to multiples of 32 for FLUX; actual ratio
+# (1408/992 ≈ 1.4194:1) is close but slightly wider than ideal.
 SPREAD_IMAGE_SIZE = {"width": 1408, "height": 992}
 LORA_SCALE = 1.0
 
