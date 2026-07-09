@@ -141,3 +141,11 @@ def test_persistent_blank_raises_after_max_attempts(monkeypatch, tmp_path):
 
     with pytest.raises(IllustrationError, match="blank image"):
         generate_illustrations_fal(["scene"], "pixar", {}, str(tmp_path))
+
+
+def test_landscape_spread_aspect_ratio_used(fake_fal, tmp_path):
+    generate_illustrations_fal(["a baby in a tub"], "crayon", {}, str(tmp_path))
+
+    _, arguments = fake_fal[0]
+    assert arguments["image_size"] == illustrate_fal.SPREAD_IMAGE_SIZE
+    assert illustrate_fal.SPREAD_IMAGE_SIZE["width"] > illustrate_fal.SPREAD_IMAGE_SIZE["height"]

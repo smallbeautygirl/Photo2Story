@@ -34,7 +34,9 @@ FAL_LORA_ENDPOINT = "fal-ai/flux-lora"
 # FLUX.1-dev sampling defaults: low CFG, no negative prompt.
 INFERENCE_STEPS = 28
 GUIDANCE_SCALE = 3.5
-IMAGE_SIZE = "square_hd"
+# Landscape ratio matching an A4 spread (two 210mm-wide portrait pages at 297mm
+# height, ~1.4141:1) so one FLUX call renders a full spread instead of one page.
+SPREAD_IMAGE_SIZE = {"width": 1408, "height": 992}
 LORA_SCALE = 1.0
 
 # FLUX occasionally returns an all-black frame (a NaN glitch on a bad seed).
@@ -105,7 +107,7 @@ def generate_illustrations_fal(
     for i, scene in enumerate(scenes):
         arguments: dict = {
             "prompt": _build_prompt(scene, preset),
-            "image_size": IMAGE_SIZE,
+            "image_size": SPREAD_IMAGE_SIZE,
             "num_inference_steps": INFERENCE_STEPS,
             "guidance_scale": GUIDANCE_SCALE,
             "num_images": 1,
