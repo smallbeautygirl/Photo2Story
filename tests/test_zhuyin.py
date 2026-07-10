@@ -30,3 +30,11 @@ def test_annotate_passes_through_punctuation_and_latin():
 
 def test_annotate_empty_string_returns_empty_list():
     assert annotate("") == []
+
+
+def test_annotate_strips_leading_and_trailing_whitespace():
+    """Matches stage3_assemble._wrap_to_width's own internal .strip(), so the
+    plain-text and Zhuyin-annotated paths treat surrounding whitespace the
+    same way."""
+    result = annotate("  陶樂蒂  ")
+    assert [zc.char for zc in result] == list("陶樂蒂")

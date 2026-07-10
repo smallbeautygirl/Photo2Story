@@ -37,7 +37,13 @@ def annotate(text: str) -> list[ZhuyinChar]:
     non-Hanzi text is present. This walks `text` by consuming exactly
     `len(reading)` characters per entry, re-expanding grouped passthrough
     runs back to one ZhuyinChar per original character.
+
+    Leading/trailing whitespace is stripped first, matching
+    stage3_assemble._wrap_to_width's own internal .strip() -- callers that
+    wrap the plain-text path and the Zhuyin path with the same raw caption
+    should see the same leading/trailing whitespace handling either way.
     """
+    text = text.strip()
     if not text:
         return []
 

@@ -123,6 +123,21 @@ def test_build_spread_pdf_creates_file(tmp_path, tmp_images):
     assert Path(out_path).stat().st_size > 1000
 
 
+def test_build_spread_pdf_zh_tw_creates_file(tmp_path, tmp_images):
+    """picture_book_spread is the real pipeline's default layout
+    (configs/demo.yaml) -- zh-tw + Zhuyin must work through this entry
+    point, not just build_picture_book_pdf."""
+    from src.stages.stage3_assemble import build_spread_pdf
+
+    pages = ["我不要上學！", "但是米亞不想動。", "世代相傳。"]
+    out_path = str(tmp_path / "spread_zh.pdf")
+
+    build_spread_pdf(tmp_images[:3], pages, out_path, language="zh-tw")
+
+    assert Path(out_path).exists()
+    assert Path(out_path).stat().st_size > 1000
+
+
 def test_build_spread_pdf_wrong_count_raises(tmp_path, tmp_images):
     from src.stages.stage3_assemble import build_spread_pdf
 
