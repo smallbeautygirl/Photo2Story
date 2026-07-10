@@ -6,7 +6,7 @@ credentials at `~/.config/gcloud/application_default_credentials.json`.
 
 Project / location are read from `.env` at the repo root, with env-var
 overrides (`GOOGLE_CLOUD_PROJECT`, `GOOGLE_CLOUD_LOCATION`). Location
-falls back to `asia-east1` if neither is set.
+falls back to `us-central1` if neither is set.
 """
 from __future__ import annotations
 
@@ -19,7 +19,11 @@ from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_LOCATION = "asia-east1"
+# us-central1 has the broadest Gemini model availability on Vertex AI; other
+# regions (e.g. asia-east1) can 404 on newer models like gemini-2.5-flash
+# with "Publisher model ... was not found or your project does not have
+# access to it" even when the project/IAM setup is otherwise correct.
+DEFAULT_LOCATION = "us-central1"
 
 # Load .env once at import time. Existing env vars take precedence (override=False).
 load_dotenv(Path(__file__).resolve().parents[2] / ".env", override=False)
