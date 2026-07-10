@@ -142,3 +142,17 @@ def test_build_spread_pdf_uses_double_width_page(tmp_path, tmp_images):
     reader = pypdf.PdfReader(out_path)
     page_width_pt = float(reader.pages[0].mediabox.width)
     assert abs(page_width_pt - 2 * PAGE_W) < 1.0
+
+
+def test_resolve_cjk_font_falls_back_to_builtin_cid_font(monkeypatch):
+    """When no embedded TTF font file is found, fall back to ReportLab's
+    built-in STSong-Light CID font instead of plain Helvetica (which has no
+    CJK glyphs at all)."""
+    import src.stages.stage3_assemble as mod
+
+    monkeypatch.setattr(mod, "_cjk_font_name", None)
+    monkeypatch.setattr(mod, "_CJK_FONT_CANDIDATES", [])
+
+    result = mod._resolve_cjk_font()
+
+    assert result == "STSong-Light"

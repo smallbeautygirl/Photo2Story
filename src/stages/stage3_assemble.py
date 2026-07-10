@@ -10,6 +10,7 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import cm
 from reportlab.lib.utils import ImageReader
 from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.cidfonts import UnicodeCIDFont
 from reportlab.pdfbase.ttfonts import TTFError, TTFont
 from reportlab.pdfgen import canvas
 
@@ -50,7 +51,14 @@ _cjk_font_name: str | None = None
 
 
 def _resolve_cjk_font(font_path: str | None = None) -> str:
-    """Register and return the first usable CJK TrueType font, or 'Helvetica' if none load.
+    """Register and return a usable CJK font.
+
+    Tries an embedded TrueType font file first (an explicit `font_path`,
+    then the fixed candidate list), then falls back to ReportLab's built-in
+    'STSong-Light' CID font -- no font file needed, since it relies on the
+    PDF viewer's own CJK font substitution (confirmed by direct testing to
+    render Traditional Chinese and Bopomofo correctly). This fallback always
+    succeeds: it ships as reportlab package data, not a filesystem lookup.
 
     Result is cached: the font is registered once per process.
     """
@@ -73,8 +81,9 @@ def _resolve_cjk_font(font_path: str | None = None) -> str:
         except TTFError:
             continue
 
-    logger.warning("No CJK TrueType font found; CJK text may not render in the PDF")
-    _cjk_font_name = "Helvetica"
+    pdfmetrics.registerFont(UnicodeCIDFont("STSong-Light"))
+    _cjk_font_name = "STSong-Light"
+    logger.info("Registered built-in CID CJK font", extra={"font": "STSong-Light"})
     return _cjk_font_name
 
 
