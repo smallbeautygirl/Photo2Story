@@ -214,6 +214,40 @@ def test_build_picture_book_pdf_zh_tw_creates_file(tmp_path, tmp_images):
     assert Path(out_path).stat().st_size > 1000
 
 
+def test_run_stage3_threads_language_from_stage1_result(tmp_path, mocker):
+    """run_stage3 must read language from stage1_result and pass it through
+    to whichever build_* function it dispatches to -- the integration seam
+    between run_stage1 returning language and build_* consuming it, which
+    no single-function test exercises directly."""
+    from src.stages.stage3_assemble import run_stage3
+
+    mock_build_spread = mocker.patch("src.stages.stage3_assemble.build_spread_pdf")
+    stage1_result = {"pages": ["頁一", "頁二"], "language": "zh-tw"}
+    stage2_result = {"illustration_paths": ["a.png", "b.png"]}
+    config = {"page_layout": "picture_book_spread"}
+
+    run_stage3(stage1_result, stage2_result, ["d1", "d2"], config, str(tmp_path / "out.pdf"))
+
+    mock_build_spread.assert_called_once()
+    assert mock_build_spread.call_args.kwargs["language"] == "zh-tw"
+
+
+def test_run_stage3_defaults_language_to_en_when_absent(tmp_path, mocker):
+    """Older stage1_result dicts without a language key must not KeyError --
+    run_stage3 should default to "en"."""
+    from src.stages.stage3_assemble import run_stage3
+
+    mock_build = mocker.patch("src.stages.stage3_assemble.build_picture_book_pdf")
+    stage1_result = {"pages": ["A.", "B."]}
+    stage2_result = {"illustration_paths": ["a.png", "b.png"]}
+    config = {"page_layout": "picture_book"}
+
+    run_stage3(stage1_result, stage2_result, ["d1", "d2"], config, str(tmp_path / "out.pdf"))
+
+    mock_build.assert_called_once()
+    assert mock_build.call_args.kwargs["language"] == "en"
+
+
 def test_build_picture_book_pdf_default_language_unaffected(tmp_path, tmp_images):
     """Omitting `language` must produce the same rendered content as
     language="en" -- English output takes the untouched plain-text path
