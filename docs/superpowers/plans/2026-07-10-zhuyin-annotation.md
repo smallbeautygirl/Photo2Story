@@ -667,27 +667,27 @@ Add to `tests/test_stage3_assemble.py`:
 
 ```python
 def test_choose_layout_variant_uses_zhuyin_wrapping_for_zh_tw():
-    """A short Hanzi string that fits in 2 plain-wrapped lines can need 3+
-    lines once Zhuyin annotation widens each character -- the decision must
-    use the same wrapping the final draw will use, or the reserved zone
-    could be too short."""
+    """A Hanzi string that fits in 2 plain-wrapped lines can need 3+ lines
+    once Zhuyin annotation widens each character -- the decision must use
+    the same wrapping the final draw will use, or the reserved zone could
+    be too short. Verified numerically before writing this test: at
+    TOP_BAND_FONT_SIZE against PAGE_W, this 33-character caption plain-wraps
+    to 2 lines but Zhuyin-wraps to 3; at 20x the width it collapses to 1
+    Zhuyin-wrapped line."""
     from src.stages.stage3_assemble import _choose_layout_variant, PAGE_W
     from reportlab.pdfbase.cidfonts import UnicodeCIDFont
     from reportlab.pdfbase import pdfmetrics
 
-    font = pdfmetrics.registerFont(UnicodeCIDFont("STSong-Light")) or "STSong-Light"
-    caption = "陶樂蒂的開學日今天真是漂亮的一天大家都很開心呢"
+    pdfmetrics.registerFont(UnicodeCIDFont("STSong-Light"))
+    caption = "陶樂蒂的開學日今天真是漂亮的一天大家都很開心呢" + "啊" * 10
 
-    en_like_result = _choose_layout_variant([caption], "STSong-Light", PAGE_W, language="en")
+    en_result = _choose_layout_variant([caption], "STSong-Light", PAGE_W, language="en")
     zh_result = _choose_layout_variant([caption], "STSong-Light", PAGE_W, language="zh-tw")
-
-    # Both may end up "top_band", but the zh-tw measurement must not silently
-    # reuse the (narrower) plain-text line count -- assert it's computed at all
-    # by checking a much wider page collapses zh-tw back to bottom_caption too.
     zh_wide_result = _choose_layout_variant(
         [caption], "STSong-Light", PAGE_W * 20, language="zh-tw"
     )
-    assert en_like_result in ("top_band", "bottom_caption")
+
+    assert en_result == "bottom_caption"
     assert zh_result == "top_band"
     assert zh_wide_result == "bottom_caption"
 
@@ -698,7 +698,7 @@ def test_text_zone_height_larger_for_zhuyin_than_plain_at_same_width():
     from reportlab.pdfbase import pdfmetrics
 
     pdfmetrics.registerFont(UnicodeCIDFont("STSong-Light"))
-    caption = "陶樂蒂的開學日今天真是漂亮的一天大家都很開心呢"
+    caption = "陶樂蒂的開學日今天真是漂亮的一天大家都很開心呢" + "啊" * 10
 
     plain_h = _text_zone_height(
         [caption], "STSong-Light", TOP_BAND_FONT_SIZE, PAGE_W, language="en"
@@ -723,8 +723,16 @@ def test_build_picture_book_pdf_zh_tw_creates_file(tmp_path, tmp_images):
 
 
 def test_build_picture_book_pdf_default_language_unaffected(tmp_path, tmp_images):
-    """Omitting `language` must produce byte-identical behavior to before this
-    task -- English output takes the untouched plain-text path."""
+    """Omitting `language` must produce the same rendered content as
+    language="en" -- English output takes the untouched plain-text path
+    either way. Compares extracted text/page count via pypdf rather than
+    raw bytes: reportlab embeds a unique per-build /ID in the PDF trailer
+    (confirmed by direct testing -- two back-to-back builds from identical
+    inputs differ at the trailer, nowhere in the actual content streams),
+    so byte-for-byte comparison is never satisfiable even when nothing
+    about the rendering differs."""
+    import pypdf
+
     from src.stages.stage3_assemble import build_picture_book_pdf
 
     pages = ["Once upon a time.", "They had fun.", "The end."]
@@ -734,7 +742,13 @@ def test_build_picture_book_pdf_default_language_unaffected(tmp_path, tmp_images
     build_picture_book_pdf(tmp_images[:3], pages, out_no_lang)
     build_picture_book_pdf(tmp_images[:3], pages, out_en, language="en")
 
-    assert Path(out_no_lang).read_bytes() == Path(out_en).read_bytes()
+    reader_no_lang = pypdf.PdfReader(out_no_lang)
+    reader_en = pypdf.PdfReader(out_en)
+
+    assert len(reader_no_lang.pages) == len(reader_en.pages)
+    assert [p.extract_text() for p in reader_no_lang.pages] == [
+        p.extract_text() for p in reader_en.pages
+    ]
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
