@@ -114,7 +114,9 @@ def _wrap_to_width(text: str, font: str, size: float, max_width: float) -> list[
     return lines
 
 
-def _wrapped_line_count(text: str, font: str, font_size: float, max_width: float, language: str) -> int:
+def _wrapped_line_count(
+    text: str, font: str, font_size: float, max_width: float, language: str
+) -> int:
     """Number of lines `text` wraps to, using Zhuyin-aware wrapping for zh-tw
     (each character is wider once annotated) and plain wrapping otherwise."""
     if language == "zh-tw":
@@ -135,7 +137,8 @@ def _choose_layout_variant(
     """
     max_width = page_width - 2 * MARGIN
     for page_text in pages:
-        if _wrapped_line_count(page_text, font, TOP_BAND_FONT_SIZE, max_width, language) > MAX_LINES_FOR_BOTTOM:
+        line_count = _wrapped_line_count(page_text, font, TOP_BAND_FONT_SIZE, max_width, language)
+        if line_count > MAX_LINES_FOR_BOTTOM:
             return "top_band"
     return "bottom_caption"
 
