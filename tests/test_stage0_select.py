@@ -43,6 +43,23 @@ def test_clip_cluster_select_no_duplicates(tmp_images):
     assert len(result) == len(set(result))
 
 
+def test_clip_cluster_select_handles_heic_input(tmp_path):
+    """iPhones export HEIC by default; PIL must be able to open it for CLIP embedding."""
+    import pillow_heif
+    from PIL import Image as PILImage
+
+    heic_path = tmp_path / "photo.heic"
+    pillow_heif.from_pillow(PILImage.new("RGB", (64, 64), color=(255, 0, 0))).save(heic_path)
+
+    features = np.random.rand(1, 512).astype(np.float32)
+    with patch.dict(sys.modules, {"open_clip": _make_open_clip_mock(features)}):
+        result = clip_cluster_select(
+            [str(heic_path)], k=1, model_name="ViT-B-32", pretrained="openai"
+        )
+
+    assert result == [str(heic_path)]
+
+
 from src.stages.stage0_select import sort_by_exif, run_stage0
 
 

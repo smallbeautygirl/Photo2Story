@@ -7,6 +7,7 @@ from datetime import datetime
 
 import numpy as np
 import piexif
+import pillow_heif
 from PIL import Image
 from sklearn.cluster import KMeans
 
@@ -18,6 +19,11 @@ from src.utils.prompt_templates import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Registers HEIC/HEIF as a Pillow-openable format, since iPhones export photos in
+# this format by default and clip_cluster_select's CLIP embedding step needs
+# Image.open() to work on them directly.
+pillow_heif.register_heif_opener()
 
 _SCORE_RE = re.compile(r"[-+]?\d*\.?\d+")
 _LOW_SCORE_THRESHOLD = 0.4
