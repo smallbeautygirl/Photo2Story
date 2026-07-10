@@ -101,15 +101,19 @@ def draw_zhuyin_line(
                 main_w = max(
                     (pdfmetrics.stringWidth(ch, font, zy_size) for ch in zc.main), default=0.0
                 )
-                tone_x = letter_x + main_w + 0.5
                 if zc.tone_mark == "˙":
-                    tone_y = y + font_size - zy_size
-                elif zc.tone_mark == "ˊ":
-                    tone_y = y + font_size - zy_size
-                elif zc.tone_mark == "ˇ":
-                    tone_y = y + (font_size - zy_size) / 2
-                else:  # "ˋ"
-                    tone_y = y
+                    # Above the first (topmost) letter -- not beside the stack like the
+                    # other tone marks, per this feature's confirmed layout design.
+                    tone_x = letter_x
+                    tone_y = y + font_size - zy_size + zy_size * 1.05
+                else:
+                    tone_x = letter_x + main_w + 0.5
+                    if zc.tone_mark == "ˊ":
+                        tone_y = y + font_size - zy_size
+                    elif zc.tone_mark == "ˇ":
+                        tone_y = y + (font_size - zy_size) / 2
+                    else:  # "ˋ"
+                        tone_y = y
                 c.drawString(tone_x, tone_y, zc.tone_mark)
 
         cursor_x += cell_w
