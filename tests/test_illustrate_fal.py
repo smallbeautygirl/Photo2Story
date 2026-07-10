@@ -173,3 +173,15 @@ def test_prompt_includes_character_reference_from_other_pages(fake_fal, tmp_path
     page_2_prompt = fake_fal[1][1]["prompt"]
     assert "eating ice cream" in page_2_prompt
     assert "playing on a swing" in page_2_prompt
+
+
+def test_prompt_includes_anatomy_quality_hint(fake_fal, tmp_path):
+    """FLUX has no negative-prompt support, so anatomy correctness (e.g. the
+    common 'extra hand' artifact in busy multi-child scenes) has to be steered
+    with positive reinforcement in every prompt."""
+    generate_illustrations_fal(
+        ["two children reaching toward a shark tank display"], "ghibli", {}, str(tmp_path)
+    )
+
+    prompt = fake_fal[0][1]["prompt"]
+    assert illustrate_fal.ANATOMY_QUALITY_HINT in prompt

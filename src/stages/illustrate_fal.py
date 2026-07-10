@@ -45,6 +45,15 @@ LORA_SCALE = 1.0
 # continuity nudge rather than crowding out that spread's own scene.
 CHARACTER_REF_WORD_CAP = 60
 
+# FLUX has no negative-prompt support (see sampling defaults above), so the
+# common "extra hand"/bad-anatomy artifact in busy multi-child scenes has to
+# be steered with positive reinforcement instead. Reduces but does not
+# guarantee eliminating the artifact.
+ANATOMY_QUALITY_HINT = (
+    "anatomically correct hands with five fingers each, natural body proportions, "
+    "no extra limbs"
+)
+
 # FLUX occasionally returns an all-black frame (a NaN glitch on a bad seed).
 # Re-running picks a fresh seed, so retry a few times before giving up.
 MAX_ATTEMPTS = 3
@@ -98,6 +107,7 @@ def _build_prompt(scene: str, preset: StylePreset, character_ref: str = "") -> s
     prompt = SD_PROMPT_TEMPLATE.format(scene=scene, style_prompt=style_prompt)
     if preset.flux_prompt_suffix:
         prompt = f"{prompt} {preset.flux_prompt_suffix}"
+    prompt = f"{prompt} {ANATOMY_QUALITY_HINT}."
     if character_ref:
         prompt = f"{prompt} Recurring characters and setting across the book: {character_ref}."
     return prompt

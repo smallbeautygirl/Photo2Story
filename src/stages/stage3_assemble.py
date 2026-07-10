@@ -27,8 +27,8 @@ LINE_HEIGHT = 16
 SECTION_GAP = 0.4 * cm
 
 # --- picture_book layout constants (shared by single-page and spread variants) ---
-TOP_BAND_FONT_SIZE = 20
-BOTTOM_CAPTION_FONT_SIZE = 15
+TOP_BAND_FONT_SIZE = 24
+BOTTOM_CAPTION_FONT_SIZE = 18
 MAX_LINES_FOR_BOTTOM = 2
 TEXT_ZONE_PAD = 0.6 * cm
 INTER_ZONE_GAP = 0.3 * cm
