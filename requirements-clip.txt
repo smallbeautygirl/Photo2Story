@@ -5,8 +5,10 @@
 # Not required when stage0.mode is llm_only or random.
 #
 # `pip install torch` alone pulls a CUDA-bundled build even on CPU-only
-# machines. Get CPU-only wheels instead:
-#   pip install -r requirements-clip.txt --index-url https://download.pytorch.org/whl/cpu
+# machines. Get CPU-only wheels instead (--extra-index-url, not --index-url:
+# the PyTorch index only hosts torch/torchvision/torchaudio, so replacing
+# PyPI outright with --index-url breaks resolution of open_clip_torch):
+#   pip install -r requirements-clip.txt --extra-index-url https://download.pytorch.org/whl/cpu
 
 torch>=2.1.0
 torchvision>=0.16.0
