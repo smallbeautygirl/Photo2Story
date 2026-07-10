@@ -13,6 +13,10 @@ piexif>=1.1.3
 fal-client>=1.0.0
 pypdf>=4.2.0  # test-only
 
-# GPU / local-model dependencies (torch, diffusers, etc.) live in
-# requirements-gpu.txt — install with `pip install -r requirements-gpu.txt`
-# only when running local model inference.
+# Local-model dependencies (torch, diffusers, etc.) live in two optional files:
+#   requirements-clip.txt — CLIP-only, CPU-friendly (stage0 hybrid/clip_only mode,
+#                           eval/clip_score.py)
+#   requirements-gpu.txt  — local Stable Diffusion backend (stage2_illustrate.py,
+#                           model_manager.py), needs a GPU for practical speed
+# Not required when using only API-based backends (google-genai, fal-client)
+# with stage0.mode: llm_only or random.

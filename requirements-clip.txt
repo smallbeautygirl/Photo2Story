@@ -1,0 +1,13 @@
+# CLIP-only dependencies, optional. CPU-friendly — no GPU/CUDA required.
+# Install with: pip install -r requirements-clip.txt
+# Needed for: stage0_select.py's clip_cluster_select (stage0.mode: hybrid or
+# clip_only), eval/clip_score.py (CLIPScore evaluation).
+# Not required when stage0.mode is llm_only or random.
+#
+# `pip install torch` alone pulls a CUDA-bundled build even on CPU-only
+# machines. Get CPU-only wheels instead:
+#   pip install -r requirements-clip.txt --index-url https://download.pytorch.org/whl/cpu
+
+torch>=2.1.0
+torchvision>=0.16.0
+open_clip_torch>=2.24.0
