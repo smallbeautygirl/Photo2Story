@@ -141,3 +141,20 @@ def test_generate_story_prompt_mentions_continuity_techniques(mocker):
     prompt = mock_generate.call_args[0][0]
     assert "recurring character" in prompt
     assert "consequence" in prompt
+
+
+def test_run_stage1_returns_language_used(mocker):
+    stage0_result = {
+        "ordered_paths": ["p1.jpg", "p2.jpg"],
+        "descriptions": {"p1.jpg": "beach", "p2.jpg": "hotel"},
+    }
+    mocker.patch(
+        "src.stages.stage1_story.generate_story", return_value=["Page 1.", "Page 2."]
+    )
+    config = {"model": "gemini-2.5-flash", "context_mode": "full", "use_causal_inference": False}
+
+    result = run_stage1(
+        stage0_result, context="trip", style="ghibli", language="zh-tw", config=config
+    )
+
+    assert result["language"] == "zh-tw"

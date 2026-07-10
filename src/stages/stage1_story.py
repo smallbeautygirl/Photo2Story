@@ -108,7 +108,7 @@ def run_stage1(
 ) -> dict:
     """
     Returns:
-        {"pages": list[str], "narrative": str}
+        {"pages": list[str], "narrative": str, "language": str}
     """
     descriptions = stage0_result["descriptions"]
     model_name = config["model"]
@@ -121,4 +121,4 @@ def run_stage1(
     pages = generate_story(
         descriptions, narrative, context, style, language, model_name, reading_level
     )
-    return {"pages": pages, "narrative": narrative}
+    return {"pages": pages, "narrative": narrative, "language": language}
