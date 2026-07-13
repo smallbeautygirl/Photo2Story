@@ -8,9 +8,54 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from pypinyin import Style, pinyin
+from pypinyin import Style, load_phrases_dict, load_single_dict, pinyin
 
 _TONE_MARKS = {"ˊ", "ˇ", "ˋ", "˙"}
+
+# pypinyin's default dictionary gets two patterns wrong that are common in
+# simple narrative Chinese (confirmed against real generated storybook
+# pages, not just theoretical cases):
+#
+# 1. 著 is a four-way heteronym (zhe/zhuo2/zhao2/zhu4). pypinyin's default
+#    reading is zhu4 ("write/compose"), but the overwhelmingly common case
+#    in narration is the "V著" continuous-aspect grammatical particle
+#    (neutral-tone "zhe"), e.g. "看著" (looking at), "笑著" (smiling). A short
+#    allow-list protects the compounds where 著 legitimately keeps a
+#    different reading; every other occurrence gets the particle reading.
+# 2. Reduplicated kinship/pet address terms (爸爸, 寶寶, 狗狗, 奶奶, ...)
+#    conventionally take neutral tone on the second syllable in everyday
+#    Mandarin, but pypinyin's dictionary only has this for some (媽媽, 哥哥),
+#    not others -- the rest fall back to two independent full-tone
+#    single-character lookups.
+#
+# Both lists are curated, not exhaustive -- add more compounds/terms here as
+# they're found wrong in real generated output.
+_ZHU_COMPOUNDS: dict[str, list[list[str]]] = {
+    "著名": [["zhu4"], ["ming2"]],
+    "著作": [["zhu4"], ["zuo4"]],
+    "著急": [["zhao2"], ["ji2"]],
+    "顯著": [["xian3"], ["zhu4"]],
+    "附著": [["fu4"], ["zhuo2"]],
+    "土著": [["tu3"], ["zhu4"]],
+    "執著": [["zhi2"], ["zhuo2"]],
+}
+
+_REDUPLICATED_ADDRESS_TERMS: dict[str, list[list[str]]] = {
+    "爸爸": [["ba4"], ["ba"]],
+    "寶寶": [["bao3"], ["bao"]],
+    "狗狗": [["gou3"], ["gou"]],
+    "奶奶": [["nai3"], ["nai"]],
+    "姊姊": [["jie3"], ["jie"]],
+    "姐姐": [["jie3"], ["jie"]],
+    "弟弟": [["di4"], ["di"]],
+    "妹妹": [["mei4"], ["mei"]],
+    "爺爺": [["ye2"], ["ye"]],
+}
+
+# Registered once at import time, matching this codebase's existing
+# one-time-setup-at-import convention (see gemini_client.py's load_dotenv).
+load_phrases_dict({**_ZHU_COMPOUNDS, **_REDUPLICATED_ADDRESS_TERMS})
+load_single_dict({ord("著"): "zhe"})
 
 
 @dataclass(frozen=True)

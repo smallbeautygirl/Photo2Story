@@ -38,3 +38,30 @@ def test_annotate_strips_leading_and_trailing_whitespace():
     same way."""
     result = annotate("  陶樂蒂  ")
     assert [zc.char for zc in result] == list("陶樂蒂")
+
+
+def test_annotate_uses_particle_reading_for_zhe_after_verb():
+    """著 defaults to zhu4 ("write/compose") in pypinyin's dictionary even in
+    the extremely common "V著" continuous-aspect grammatical particle
+    pattern -- confirmed wrong for narrative sentences like "看著" (looking
+    at), which a real generated storybook page used."""
+    result = annotate("看著")
+    assert result[1] == ZhuyinChar(char="著", main="ㄓㄜ", tone_mark="˙")
+
+
+def test_annotate_keeps_correct_reading_for_zhu_compounds():
+    """A short allow-list protects the compounds where 著 legitimately keeps
+    a non-particle reading, so the particle-reading override above doesn't
+    regress these."""
+    assert annotate("著名")[0] == ZhuyinChar(char="著", main="ㄓㄨ", tone_mark="ˋ")
+    assert annotate("著急")[0] == ZhuyinChar(char="著", main="ㄓㄠ", tone_mark="ˊ")
+
+
+def test_annotate_uses_neutral_tone_for_reduplicated_address_terms():
+    """爸爸/寶寶/狗狗/奶奶 conventionally take neutral tone on the second
+    syllable in everyday Mandarin (confirmed wrong in a real generated
+    storybook using "寶寶"); pypinyin's default dictionary only gets this
+    right for some reduplicated terms (媽媽, 哥哥), not others."""
+    result = annotate("寶寶")
+    assert result[0] == ZhuyinChar(char="寶", main="ㄅㄠ", tone_mark="ˇ")
+    assert result[1] == ZhuyinChar(char="寶", main="ㄅㄠ", tone_mark="˙")
