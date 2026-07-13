@@ -65,3 +65,20 @@ def test_annotate_uses_neutral_tone_for_reduplicated_address_terms():
     result = annotate("寶寶")
     assert result[0] == ZhuyinChar(char="寶", main="ㄅㄠ", tone_mark="ˇ")
     assert result[1] == ZhuyinChar(char="寶", main="ㄅㄠ", tone_mark="˙")
+
+
+def test_annotate_uses_conjunction_reading_for_he_between_nouns():
+    """和 as the conjunction "and" is read han4 in Taiwan Mandarin, but
+    pypinyin's dictionary default is always he2 -- confirmed wrong for
+    sentences like "貓和狗" (cat and dog), found in a real generated
+    storybook."""
+    result = annotate("貓和狗")
+    assert result[1] == ZhuyinChar(char="和", main="ㄏㄢ", tone_mark="ˋ")
+
+
+def test_annotate_keeps_correct_reading_for_he_compounds():
+    """A short allow-list protects the compounds where 和 legitimately keeps
+    its he2/he4 reading, so the conjunction-reading override above doesn't
+    regress these."""
+    assert annotate("和平")[0] == ZhuyinChar(char="和", main="ㄏㄜ", tone_mark="ˊ")
+    assert annotate("附和")[1] == ZhuyinChar(char="和", main="ㄏㄜ", tone_mark="ˋ")
