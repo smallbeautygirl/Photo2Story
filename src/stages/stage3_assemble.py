@@ -15,6 +15,7 @@ from reportlab.pdfbase.ttfonts import TTFError, TTFont
 from reportlab.pdfgen import canvas
 
 from src.stages.zhuyin_render import draw_zhuyin_line, wrap_zhuyin
+from src.utils.text_wrap import wrap_to_width, wrapped_line_count
 from src.utils.zhuyin import annotate
 
 logger = logging.getLogger(__name__)
@@ -90,40 +91,6 @@ def _resolve_cjk_font(font_path: str | None = None) -> str:
     return _cjk_font_name
 
 
-def _wrap_to_width(text: str, font: str, size: float, max_width: float) -> list[str]:
-    """Wrap text to a pixel width. Breaks on spaces for latin text, per character for CJK."""
-    text = text.strip()
-    if not text:
-        return []
-    if " " in text:
-        units, joiner = text.split(), " "
-    else:
-        units, joiner = list(text), ""
-
-    lines: list[str] = []
-    current = ""
-    for unit in units:
-        trial = f"{current}{joiner}{unit}" if current else unit
-        if not current or pdfmetrics.stringWidth(trial, font, size) <= max_width:
-            current = trial
-        else:
-            lines.append(current)
-            current = unit
-    if current:
-        lines.append(current)
-    return lines
-
-
-def _wrapped_line_count(
-    text: str, font: str, font_size: float, max_width: float, language: str
-) -> int:
-    """Number of lines `text` wraps to, using Zhuyin-aware wrapping for zh-tw
-    (each character is wider once annotated) and plain wrapping otherwise."""
-    if language == "zh-tw":
-        return len(wrap_zhuyin(annotate(text), font, font_size, max_width))
-    return len(_wrap_to_width(text, font, font_size, max_width))
-
-
 def _choose_layout_variant(
     pages: list[str], font: str, page_width: float, language: str = "en"
 ) -> Literal["top_band", "bottom_caption"]:
@@ -137,7 +104,7 @@ def _choose_layout_variant(
     """
     max_width = page_width - 2 * MARGIN
     for page_text in pages:
-        line_count = _wrapped_line_count(page_text, font, TOP_BAND_FONT_SIZE, max_width, language)
+        line_count = wrapped_line_count(page_text, font, TOP_BAND_FONT_SIZE, max_width, language)
         if line_count > MAX_LINES_FOR_BOTTOM:
             return "top_band"
     return "bottom_caption"
@@ -162,12 +129,12 @@ def _text_zone_height(
     """Height of the text zone, sized to the longest wrapped caption across all pages.
 
     Computed once per book so every page reserves an identically sized band.
-    zh-tw captions use Zhuyin-aware wrapping (see _wrapped_line_count).
+    zh-tw captions use Zhuyin-aware wrapping (see wrapped_line_count).
     """
     max_width = page_width - 2 * MARGIN
     line_height = font_size * 1.3
     max_lines = max(
-        (_wrapped_line_count(p, font, font_size, max_width, language) or 1 for p in pages),
+        (wrapped_line_count(p, font, font_size, max_width, language) or 1 for p in pages),
         default=1,
     )
     return 2 * TEXT_ZONE_PAD + max_lines * line_height
@@ -199,7 +166,7 @@ def _draw_zone_text(
             cursor_y -= line_height
         return
 
-    lines = _wrap_to_width(text, font, font_size, w) or [""]
+    lines = wrap_to_width(text, font, font_size, w) or [""]
     c.setFillColor(colors.black)
     c.setFont(font, font_size)
     for line in lines:
@@ -312,7 +279,7 @@ def _draw_section(c: canvas.Canvas, label: str, text: str, body_font: str, top_y
     y = top_y - LINE_HEIGHT
 
     c.setFont(body_font, FONT_SIZE)
-    for line in _wrap_to_width(text or "(empty)", body_font, FONT_SIZE, PAGE_W - 2 * MARGIN):
+    for line in wrap_to_width(text or "(empty)", body_font, FONT_SIZE, PAGE_W - 2 * MARGIN):
         if y < MARGIN:
             return y
         c.drawString(MARGIN, y, line)
