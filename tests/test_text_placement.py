@@ -60,27 +60,37 @@ def test_analyze_suitability_brightness_matches_grayscale_level():
     assert analyze_suitability(light).brightness.mean() > 200
 
 
-def test_analyze_suitability_detects_salient_shapes_via_saliency_weight():
-    """A region with a salient shape (white circle on gray background) must score
-    as higher badness than a plain uniform region, driven by the saliency weight
-    contribution even though both regions are locally flat by edge/variance standards."""
-    from src.stages.text_placement import analyze_suitability
+def test_analyze_suitability_saliency_weight_drives_most_of_the_badness_gap(monkeypatch):
+    """Saliency (weight 0.5, the largest of the three) must account for most
+    of the badness gap between a salient shape and plain background -- not
+    edge density and variance alone, which only produce a small boundary
+    signal. Verified by comparing the gap at full weights against the gap
+    with saliency zeroed out."""
+    from src.stages import text_placement
 
+    # Construct image: left half plain gray, right half gray with white circle
     size = 200
     arr = np.full((size, size, 3), 128, dtype=np.uint8)
-
-    # Add a white circle to the right half centered at (150, 100)
     center_y, center_x = size // 2, 3 * size // 4
     radius = 20
     y, x = np.ogrid[:size, :size]
     mask = (x - center_x) ** 2 + (y - center_y) ** 2 <= radius**2
     arr[mask] = 255
-
     image = Image.fromarray(arr, mode="RGB")
-    suitability = analyze_suitability(image)
 
-    grid_h, grid_w = suitability.badness.shape
-    left_region = suitability.badness[:, : grid_w // 2]
-    right_region = suitability.badness[:, grid_w // 2 :]
+    # Measure badness gap with full weights
+    full = text_placement.analyze_suitability(image)
+    grid_h, grid_w = full.badness.shape
+    left_mean = full.badness[:, : grid_w // 2].mean()
+    right_mean = full.badness[:, grid_w // 2 :].mean()
+    full_gap = right_mean - left_mean
 
-    assert left_region.mean() < right_region.mean()
+    # Measure badness gap with saliency zeroed
+    monkeypatch.setattr(text_placement, "BADNESS_WEIGHTS", (0.0, 0.3, 0.2))
+    no_saliency = text_placement.analyze_suitability(image)
+    no_sal_left_mean = no_saliency.badness[:, : grid_w // 2].mean()
+    no_sal_right_mean = no_saliency.badness[:, grid_w // 2 :].mean()
+    no_saliency_gap = no_sal_right_mean - no_sal_left_mean
+
+    # Saliency must account for > 50% of the gap (causal ablation)
+    assert no_saliency_gap < full_gap * 0.5
