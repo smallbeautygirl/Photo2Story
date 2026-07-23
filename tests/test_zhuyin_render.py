@@ -111,3 +111,40 @@ def test_draw_zhuyin_line_positions_all_four_tone_marks_distinctly():
     # neutral tone must be strictly above the 2nd-tone mark (both share the same x-ish
     # region beside/above the stack, but neutral must be higher, not identical)
     assert tone_positions["˙"][1] > tone_positions["ˊ"][1]
+
+
+def test_draw_zhuyin_line_uses_given_fill_color():
+    from reportlab.lib import colors
+    from reportlab.pdfbase.cidfonts import UnicodeCIDFont
+    from reportlab.pdfbase import pdfmetrics
+
+    pdfmetrics.registerFont(UnicodeCIDFont("STSong-Light"))
+
+    calls = []
+
+    class _RecordingCanvas:
+        def __init__(self, real):
+            self._real = real
+
+        def setFillColor(self, *a, **kw):
+            calls.append(("setFillColor", a, kw))
+            self._real.setFillColor(*a, **kw)
+
+        def setFont(self, *a, **kw):
+            self._real.setFont(*a, **kw)
+
+        def drawString(self, x, y, text):
+            self._real.drawString(x, y, text)
+
+    from reportlab.pdfgen import canvas as canvas_module
+
+    real_canvas = canvas_module.Canvas("/dev/null")
+    wrapped = _RecordingCanvas(real_canvas)
+    zchars = annotate("媽")
+
+    draw_zhuyin_line(
+        wrapped, zchars, "STSong-Light", 24, x=50, y=700, w=400, align="left",
+        fill_color=colors.white,
+    )
+
+    assert ("setFillColor", (colors.white,), {}) in calls
