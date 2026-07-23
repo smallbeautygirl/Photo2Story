@@ -14,6 +14,7 @@ from reportlab.pdfbase.cidfonts import UnicodeCIDFont
 from reportlab.pdfbase.ttfonts import TTFError, TTFont
 from reportlab.pdfgen import canvas
 
+from src.stages.text_placement import CONTRAST_SAFE_VARIANCE, SCRIM_OPACITY, Candidate
 from src.stages.zhuyin_render import draw_zhuyin_line, wrap_zhuyin
 from src.utils.text_wrap import wrap_to_width, wrapped_line_count
 from src.utils.zhuyin import annotate
@@ -123,6 +124,20 @@ def _contain_fit_image(
     c.drawImage(ImageReader(img), draw_x, draw_y, width=draw_w, height=draw_h)
 
 
+def _cover_fit_image(
+    c: canvas.Canvas, image: Image.Image, page_w: float, page_h: float
+) -> None:
+    """Scale the already-opened illustration to fill the whole page,
+    cropping any excess. Takes a loaded image rather than a path so the
+    caller can reuse the same load for suitability analysis."""
+    img_w, img_h = image.size
+    scale = max(page_w / img_w, page_h / img_h)
+    draw_w, draw_h = img_w * scale, img_h * scale
+    draw_x = (page_w - draw_w) / 2
+    draw_y = (page_h - draw_h) / 2
+    c.drawImage(ImageReader(image), draw_x, draw_y, width=draw_w, height=draw_h)
+
+
 def _text_zone_height(
     pages: list[str], font: str, font_size: float, page_width: float, language: str = "en"
 ) -> float:
@@ -150,6 +165,8 @@ def _draw_zone_text(
     w: float,
     align: Literal["left", "center"],
     language: str = "en",
+    fill_color: colors.Color = colors.black,
+    offset: tuple[float, float] = (0.0, 0.0),
 ) -> None:
     """Draw wrapped text with its first line's baseline just below `top_y`.
 
@@ -157,17 +174,21 @@ def _draw_zone_text(
     other language uses the plain wrap-and-draw path, unchanged.
     """
     line_height = font_size * 1.3
-    cursor_y = top_y - font_size
+    dx, dy = offset
+    cursor_y = top_y - font_size + dy
+    x = x + dx
 
     if language == "zh-tw":
         zhuyin_lines = wrap_zhuyin(annotate(text), font, font_size, w) or [[]]
         for zhuyin_line in zhuyin_lines:
-            draw_zhuyin_line(c, zhuyin_line, font, font_size, x, cursor_y, w, align)
+            draw_zhuyin_line(
+                c, zhuyin_line, font, font_size, x, cursor_y, w, align, fill_color=fill_color
+            )
             cursor_y -= line_height
         return
 
     lines = wrap_to_width(text, font, font_size, w) or [""]
-    c.setFillColor(colors.black)
+    c.setFillColor(fill_color)
     c.setFont(font, font_size)
     for line in lines:
         if align == "center":
@@ -175,6 +196,49 @@ def _draw_zone_text(
         else:
             c.drawString(x, cursor_y, line)
         cursor_y -= line_height
+
+
+def _draw_caption_overlay(
+    c: canvas.Canvas,
+    candidate: Candidate,
+    page_text: str,
+    font: str,
+    page_w: float,
+    page_h: float,
+    language: str = "en",
+) -> None:
+    """Draw `page_text` inside `candidate`'s rectangle, directly on the
+    illustration, escalating from plain text to an outline to a translucent
+    scrim only as far as needed for contrast against the artwork."""
+    x = candidate.x * page_w
+    w = candidate.w * page_w
+    top_y = page_h - candidate.y * page_h
+    h = candidate.h * page_h
+
+    ink = colors.black if candidate.brightness > 128 else colors.white
+    backdrop = colors.white if ink == colors.black else colors.black
+
+    if candidate.variance <= CONTRAST_SAFE_VARIANCE:
+        _draw_zone_text(
+            c, page_text, font, candidate.font_size, x, top_y, w, "left", language, fill_color=ink
+        )
+    elif not candidate.requires_scrim:
+        _draw_zone_text(
+            c, page_text, font, candidate.font_size, x, top_y, w, "left", language,
+            fill_color=backdrop, offset=(0.6, -0.6),
+        )
+        _draw_zone_text(
+            c, page_text, font, candidate.font_size, x, top_y, w, "left", language, fill_color=ink
+        )
+    else:
+        c.saveState()
+        c.setFillColor(backdrop)
+        c.setFillAlpha(SCRIM_OPACITY)
+        c.rect(x, top_y - h, w, h, fill=1, stroke=0)
+        c.restoreState()
+        _draw_zone_text(
+            c, page_text, font, candidate.font_size, x, top_y, w, "left", language, fill_color=ink
+        )
 
 
 def _draw_picture_book_page(

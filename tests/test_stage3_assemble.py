@@ -290,3 +290,107 @@ def test_build_picture_book_pdf_default_language_unaffected(tmp_path, tmp_images
     assert [p.extract_text() for p in reader_no_lang.pages] == [
         p.extract_text() for p in reader_en.pages
     ]
+
+
+def test_cover_fit_image_fills_entire_page(tmp_path, tmp_images):
+    """Unlike contain-fit, cover-fit must never leave visible page margin --
+    the drawn image must be at least as large as the page in both dimensions."""
+    from PIL import Image
+    from reportlab.pdfgen import canvas as canvas_module
+
+    from src.stages.stage3_assemble import PAGE_H, PAGE_W, _cover_fit_image
+
+    calls = []
+    c = canvas_module.Canvas(str(tmp_path / "cover.pdf"))
+    original_draw_image = c.drawImage
+
+    def _recording_draw_image(image, x, y, width, height, **kwargs):
+        calls.append((x, y, width, height))
+        return original_draw_image(image, x, y, width=width, height=height, **kwargs)
+
+    c.drawImage = _recording_draw_image
+    image = Image.open(tmp_images[0]).convert("RGB")
+    _cover_fit_image(c, image, PAGE_W, PAGE_H)
+
+    x, y, width, height = calls[0]
+    assert width >= PAGE_W - 0.01
+    assert height >= PAGE_H - 0.01
+
+
+def test_draw_caption_overlay_draws_plain_text_for_low_variance_candidate():
+    from reportlab.pdfgen import canvas as canvas_module
+
+    from src.stages.stage3_assemble import _draw_caption_overlay, PAGE_H, PAGE_W, _resolve_cjk_font
+    from src.stages.text_placement import Candidate
+
+    font = _resolve_cjk_font()
+    candidate = Candidate(
+        x=0.1, y=0.1, w=0.5, h=0.2, font_size=20.0, badness=0.1, variance=0.05,
+        brightness=230.0, requires_scrim=False,
+    )
+    calls = []
+    c = canvas_module.Canvas("/dev/null")
+    original_draw_string = c.drawString
+
+    def _recording_draw_string(x, y, text):
+        calls.append(text)
+        return original_draw_string(x, y, text)
+
+    c.drawString = _recording_draw_string
+    _draw_caption_overlay(c, candidate, "Hello there.", font, PAGE_W, PAGE_H)
+
+    assert calls == ["Hello there."]
+
+
+def test_draw_caption_overlay_draws_outline_pass_for_high_variance_no_scrim_candidate():
+    from reportlab.pdfgen import canvas as canvas_module
+
+    from src.stages.stage3_assemble import _draw_caption_overlay, PAGE_H, PAGE_W, _resolve_cjk_font
+    from src.stages.text_placement import Candidate
+
+    font = _resolve_cjk_font()
+    candidate = Candidate(
+        x=0.1, y=0.1, w=0.5, h=0.2, font_size=20.0, badness=0.3, variance=0.5,
+        brightness=230.0, requires_scrim=False,
+    )
+    calls = []
+    c = canvas_module.Canvas("/dev/null")
+    original_draw_string = c.drawString
+
+    def _recording_draw_string(x, y, text):
+        calls.append((x, y, text))
+        return original_draw_string(x, y, text)
+
+    c.drawString = _recording_draw_string
+    _draw_caption_overlay(c, candidate, "Hi.", font, PAGE_W, PAGE_H)
+
+    # outline pass (offset) + main pass (no offset) => same text drawn twice at
+    # different positions
+    matching = [call for call in calls if call[2] == "Hi."]
+    assert len(matching) == 2
+    assert matching[0][:2] != matching[1][:2]
+
+
+def test_draw_caption_overlay_draws_scrim_rect_for_requires_scrim_candidate():
+    from reportlab.pdfgen import canvas as canvas_module
+
+    from src.stages.stage3_assemble import _draw_caption_overlay, PAGE_H, PAGE_W, _resolve_cjk_font
+    from src.stages.text_placement import Candidate
+
+    font = _resolve_cjk_font()
+    candidate = Candidate(
+        x=0.1, y=0.1, w=0.5, h=0.2, font_size=14.0, badness=0.6, variance=0.6,
+        brightness=100.0, requires_scrim=True,
+    )
+    calls = []
+    c = canvas_module.Canvas("/dev/null")
+    original_rect = c.rect
+
+    def _recording_rect(*args, **kwargs):
+        calls.append((args, kwargs))
+        return original_rect(*args, **kwargs)
+
+    c.rect = _recording_rect
+    _draw_caption_overlay(c, candidate, "Hi.", font, PAGE_W, PAGE_H)
+
+    assert len(calls) == 1
