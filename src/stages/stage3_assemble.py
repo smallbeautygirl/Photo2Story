@@ -14,9 +14,16 @@ from reportlab.pdfbase.cidfonts import UnicodeCIDFont
 from reportlab.pdfbase.ttfonts import TTFError, TTFont
 from reportlab.pdfgen import canvas
 
-from src.stages.text_placement import CONTRAST_SAFE_VARIANCE, SCRIM_OPACITY, Candidate
+from src.stages.text_placement import (
+    CONTRAST_SAFE_VARIANCE,
+    SCRIM_OPACITY,
+    Candidate,
+    analyze_suitability,
+    pick_best,
+    search_candidates,
+)
 from src.stages.zhuyin_render import draw_zhuyin_line, wrap_zhuyin
-from src.utils.text_wrap import wrap_to_width, wrapped_line_count
+from src.utils.text_wrap import wrap_to_width
 from src.utils.zhuyin import annotate
 
 logger = logging.getLogger(__name__)
@@ -31,13 +38,6 @@ FONT_SIZE = 12
 HEADER_SIZE = 12
 LINE_HEIGHT = 16
 SECTION_GAP = 0.4 * cm
-
-# --- picture_book layout constants (shared by single-page and spread variants) ---
-TOP_BAND_FONT_SIZE = 24
-BOTTOM_CAPTION_FONT_SIZE = 18
-MAX_LINES_FOR_BOTTOM = 2
-TEXT_ZONE_PAD = 0.6 * cm
-INTER_ZONE_GAP = 0.3 * cm
 
 # --- picture_book_spread geometry: one PDF page per spread (two A4 widths, one A4 height) ---
 SPREAD_PAGE_W = 2 * PAGE_W
@@ -92,38 +92,6 @@ def _resolve_cjk_font(font_path: str | None = None) -> str:
     return _cjk_font_name
 
 
-def _choose_layout_variant(
-    pages: list[str], font: str, page_width: float, language: str = "en"
-) -> Literal["top_band", "bottom_caption"]:
-    """Decide once per book: top-band for long captions, bottom-caption for short ones.
-
-    Every page's caption is wrapped at `page_width` using the top-band font size as a
-    fixed yardstick, regardless of which variant is ultimately chosen -- this keeps the
-    decision a pure text-length measurement that never depends on the chosen variant.
-    zh-tw captions use Zhuyin-aware wrapping, since each character is wider once
-    annotated and would otherwise be under-measured.
-    """
-    max_width = page_width - 2 * MARGIN
-    for page_text in pages:
-        line_count = wrapped_line_count(page_text, font, TOP_BAND_FONT_SIZE, max_width, language)
-        if line_count > MAX_LINES_FOR_BOTTOM:
-            return "top_band"
-    return "bottom_caption"
-
-
-def _contain_fit_image(
-    c: canvas.Canvas, img_path: str, x: float, y: float, w: float, h: float
-) -> None:
-    """Scale the illustration to fit within (w, h) without cropping, centered in the zone."""
-    img = Image.open(img_path).convert("RGB")
-    img_w, img_h = img.size
-    scale = min(w / img_w, h / img_h)
-    draw_w, draw_h = img_w * scale, img_h * scale
-    draw_x = x + (w - draw_w) / 2
-    draw_y = y + (h - draw_h) / 2
-    c.drawImage(ImageReader(img), draw_x, draw_y, width=draw_w, height=draw_h)
-
-
 def _cover_fit_image(
     c: canvas.Canvas, image: Image.Image, page_w: float, page_h: float
 ) -> None:
@@ -136,23 +104,6 @@ def _cover_fit_image(
     draw_x = (page_w - draw_w) / 2
     draw_y = (page_h - draw_h) / 2
     c.drawImage(ImageReader(image), draw_x, draw_y, width=draw_w, height=draw_h)
-
-
-def _text_zone_height(
-    pages: list[str], font: str, font_size: float, page_width: float, language: str = "en"
-) -> float:
-    """Height of the text zone, sized to the longest wrapped caption across all pages.
-
-    Computed once per book so every page reserves an identically sized band.
-    zh-tw captions use Zhuyin-aware wrapping (see wrapped_line_count).
-    """
-    max_width = page_width - 2 * MARGIN
-    line_height = font_size * 1.3
-    max_lines = max(
-        (wrapped_line_count(p, font, font_size, max_width, language) or 1 for p in pages),
-        default=1,
-    )
-    return 2 * TEXT_ZONE_PAD + max_lines * line_height
 
 
 def _draw_zone_text(
@@ -241,45 +192,6 @@ def _draw_caption_overlay(
         )
 
 
-def _draw_picture_book_page(
-    c: canvas.Canvas,
-    img_path: str,
-    page_text: str,
-    font: str,
-    variant: Literal["top_band", "bottom_caption"],
-    text_h: float,
-    page_w: float,
-    page_h: float,
-    language: str = "en",
-) -> None:
-    """Draw one page/spread: a text zone (top or bottom) and a contain-fit image
-    filling the rest, with a small gap so text never touches the art."""
-    content_w = page_w - 2 * MARGIN
-    if variant == "top_band":
-        text_top_y = page_h - MARGIN
-        _draw_zone_text(
-            c, page_text, font, TOP_BAND_FONT_SIZE, MARGIN, text_top_y, content_w, "left", language
-        )
-        image_h = page_h - MARGIN - text_h - INTER_ZONE_GAP - MARGIN
-        _contain_fit_image(c, img_path, MARGIN, MARGIN, content_w, image_h)
-    else:
-        image_y = MARGIN + text_h + INTER_ZONE_GAP
-        image_h = page_h - MARGIN - image_y
-        _contain_fit_image(c, img_path, MARGIN, image_y, content_w, image_h)
-        text_top_y = MARGIN + text_h
-        _draw_zone_text(
-            c,
-            page_text,
-            font,
-            BOTTOM_CAPTION_FONT_SIZE,
-            MARGIN,
-            text_top_y,
-            content_w,
-            "center",
-            language,
-        )
-
-
 def build_picture_book_pdf(
     illustration_paths: list[str],
     pages: list[str],
@@ -288,27 +200,26 @@ def build_picture_book_pdf(
     page_size: tuple[float, float] = A4,
     language: str = "en",
 ) -> None:
-    """Build a picture-book PDF: image contain-fit into a reserved zone, caption text
-    in a plain-background zone outside the image that never overlaps it. The
-    top-band-vs-bottom-caption choice and the text zone's height are both computed
-    once per book, so every page/spread reserves an identically sized, positioned zone.
-    zh-tw captions are annotated with Zhuyin (see zhuyin_render.py); every other
-    language takes the unchanged plain-text path.
+    """Build a picture-book PDF: each page is a full-bleed illustration with
+    its caption drawn directly on top, in a programmatically detected
+    text-safe region (see text_placement.py) rather than a reserved zone
+    outside the art.
     """
     assert len(illustration_paths) == len(pages), (
         f"Mismatch: {len(illustration_paths)} illustrations vs {len(pages)} pages"
     )
     font = _resolve_cjk_font(font_path)
     page_w, page_h = page_size
-    variant = _choose_layout_variant(pages, font, page_w, language)
-    font_size = TOP_BAND_FONT_SIZE if variant == "top_band" else BOTTOM_CAPTION_FONT_SIZE
-    text_h = _text_zone_height(pages, font, font_size, page_w, language)
 
     c = canvas.Canvas(output_path, pagesize=page_size)
     for img_path, page_text in zip(illustration_paths, pages):
-        _draw_picture_book_page(
-            c, img_path, page_text, font, variant, text_h, page_w, page_h, language
-        )
+        image = Image.open(img_path).convert("RGB")
+        suitability = analyze_suitability(image)
+        candidates = search_candidates(suitability, page_text, font, language, page_w, page_h)
+        best = pick_best(candidates)
+
+        _cover_fit_image(c, image, page_w, page_h)
+        _draw_caption_overlay(c, best, page_text, font, page_w, page_h, language)
         c.showPage()
     c.save()
 
