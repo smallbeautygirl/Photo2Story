@@ -141,3 +141,113 @@ def analyze_suitability(image: Image.Image) -> SuitabilityMap:
         variance=variance_norm.astype(np.float32),
         brightness=gray.astype(np.float32),
     )
+
+
+def _candidate_from_position(
+    variance_integral: np.ndarray,
+    brightness_integral: np.ndarray,
+    y0: int,
+    x0: int,
+    rect_h: int,
+    rect_w: int,
+    grid_h: int,
+    grid_w: int,
+    width_fraction: float,
+    height_fraction: float,
+    font_size: float,
+    badness: float,
+    requires_scrim: bool,
+) -> Candidate:
+    area = rect_h * rect_w
+    variance = _rect_sum(variance_integral, y0, x0, y0 + rect_h, x0 + rect_w) / area
+    brightness = _rect_sum(brightness_integral, y0, x0, y0 + rect_h, x0 + rect_w) / area
+    return Candidate(
+        x=x0 / grid_w,
+        y=y0 / grid_h,
+        w=width_fraction,
+        h=height_fraction,
+        font_size=font_size,
+        badness=badness,
+        variance=variance,
+        brightness=brightness,
+        requires_scrim=requires_scrim,
+    )
+
+
+def search_candidates(
+    suitability: SuitabilityMap,
+    caption: str,
+    font: str,
+    language: str,
+    page_width: float,
+    page_height: float,
+) -> list[Candidate]:
+    """Search each of the three shape presets independently for its best
+    text-safe rectangle, font-fitting the caption to each shape as it goes."""
+    badness_integral = _integral_image(suitability.badness)
+    variance_integral = _integral_image(suitability.variance)
+    brightness_integral = _integral_image(suitability.brightness)
+    grid_h, grid_w = suitability.badness.shape
+
+    candidates: list[Candidate] = []
+    for width_fraction in SHAPE_PRESET_WIDTHS:
+        rect_w_pt = width_fraction * page_width
+        max_text_width_pt = rect_w_pt - 2 * CANDIDATE_PAD_PT
+
+        font_size = FONT_SIZE_MAX
+        last_attempt: tuple[int, int, int, int, float, float] | None = None
+        chosen: Candidate | None = None
+        while font_size >= FONT_SIZE_MIN:
+            line_count = max(
+                wrapped_line_count(caption, font, font_size, max_text_width_pt, language), 1
+            )
+            rect_h_pt = 2 * CANDIDATE_PAD_PT + line_count * font_size * 1.3
+            height_fraction = min(rect_h_pt / page_height, MAX_HEIGHT_FRACTION)
+            rect_h = min(max(round(height_fraction * grid_h), 1), grid_h)
+            rect_w = min(max(round(width_fraction * grid_w), 1), grid_w)
+
+            sums = _rect_sums_for_size(badness_integral, rect_h, rect_w)
+            area = rect_h * rect_w
+            y0, x0 = (int(i) for i in np.unravel_index(np.argmin(sums), sums.shape))
+            best_badness = float(sums[y0, x0] / area)
+            last_attempt = (y0, x0, rect_h, rect_w, best_badness, height_fraction)
+
+            if best_badness <= SAFE_THRESHOLD:
+                chosen = _candidate_from_position(
+                    variance_integral,
+                    brightness_integral,
+                    y0,
+                    x0,
+                    rect_h,
+                    rect_w,
+                    grid_h,
+                    grid_w,
+                    width_fraction,
+                    height_fraction,
+                    font_size,
+                    best_badness,
+                    requires_scrim=False,
+                )
+                break
+            font_size -= FONT_SIZE_STEP
+
+        if chosen is None:
+            assert last_attempt is not None
+            y0, x0, rect_h, rect_w, best_badness, height_fraction = last_attempt
+            chosen = _candidate_from_position(
+                variance_integral,
+                brightness_integral,
+                y0,
+                x0,
+                rect_h,
+                rect_w,
+                grid_h,
+                grid_w,
+                width_fraction,
+                height_fraction,
+                FONT_SIZE_MIN,
+                best_badness,
+                requires_scrim=True,
+            )
+        candidates.append(chosen)
+    return candidates

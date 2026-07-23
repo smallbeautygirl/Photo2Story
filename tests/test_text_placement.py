@@ -94,3 +94,69 @@ def test_analyze_suitability_saliency_weight_drives_most_of_the_badness_gap(monk
 
     # Saliency must account for > 50% of the gap (causal ablation)
     assert no_saliency_gap < full_gap * 0.5
+
+
+def test_search_candidates_returns_one_per_shape_preset():
+    from src.stages.text_placement import SHAPE_PRESET_WIDTHS, analyze_suitability, search_candidates
+
+    image = Image.fromarray(np.full((200, 200, 3), 230, dtype=np.uint8), mode="RGB")
+    suitability = analyze_suitability(image)
+
+    candidates = search_candidates(
+        suitability, "A short caption.", "Helvetica", "en", 400.0, 400.0
+    )
+
+    assert len(candidates) == len(SHAPE_PRESET_WIDTHS)
+    assert [round(c.w, 2) for c in candidates] == [round(w, 2) for w in SHAPE_PRESET_WIDTHS]
+
+
+def test_search_candidates_narrower_preset_gets_smaller_or_equal_font_for_long_caption():
+    """A long caption needs more lines at a narrower width, growing the
+    candidate rectangle's height until it crosses from a safe zone into an
+    unsafe one and is forced to a smaller font -- a narrower preset must
+    never end up with a *larger* font than a wider preset for the same
+    caption.
+
+    A flat, uniformly-colored image (as used in the other tests here) turns
+    out to score as near-zero badness everywhere at every rectangle size --
+    verified empirically up to 300 repeated words with no font-size change --
+    so it can never exercise this code path regardless of caption length.
+    Instead, a SuitabilityMap is built directly with a hard safe/unsafe
+    boundary partway down the grid: a rectangle that must grow past that
+    boundary to fit its text picks up unsafe badness and is forced smaller.
+    """
+    from src.stages.text_placement import SuitabilityMap, search_candidates
+
+    grid_size = 200
+    safe_rows = 60
+    badness = np.zeros((grid_size, grid_size), dtype=np.float32)
+    badness[safe_rows:] = 0.9
+    suitability = SuitabilityMap(
+        badness=badness, variance=np.zeros_like(badness), brightness=np.zeros_like(badness)
+    )
+    long_caption = " ".join(["word"] * 15)
+
+    candidates = search_candidates(suitability, long_caption, "Helvetica", "en", 400.0, 400.0)
+    by_width = sorted(candidates, key=lambda c: c.w)
+
+    assert by_width[0].font_size < by_width[-1].font_size
+
+
+def test_search_candidates_flags_requires_scrim_when_nothing_clears_threshold():
+    """Salt-and-pepper (binary black/white) noise keeps edge density and local
+    variance uniformly high across every position -- unlike continuous random
+    noise, which by chance can still contain locally smoother pockets that
+    dip below SAFE_THRESHOLD -- so no candidate rectangle anywhere can clear
+    the threshold."""
+    from src.stages.text_placement import analyze_suitability, search_candidates
+
+    rng = np.random.default_rng(0)
+    arr = (rng.integers(0, 2, size=(200, 200, 3)) * 255).astype(np.uint8)
+    image = Image.fromarray(arr, mode="RGB")
+    suitability = analyze_suitability(image)
+
+    candidates = search_candidates(
+        suitability, "A caption that needs placement.", "Helvetica", "en", 400.0, 400.0
+    )
+
+    assert all(c.requires_scrim for c in candidates)
