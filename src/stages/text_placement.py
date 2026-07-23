@@ -102,3 +102,42 @@ def _rect_sums_for_size(integral: np.ndarray, rect_h: int, rect_w: int) -> np.nd
     c = integral[rect_h:, : width - rect_w + 1]
     d = integral[: height - rect_h + 1, : width - rect_w + 1]
     return a - b - c + d
+
+
+def analyze_suitability(image: Image.Image) -> SuitabilityMap:
+    """Downsample `image` and compute its per-pixel text-safety badness."""
+    rgb = image.convert("RGB")
+    long_side = max(rgb.size)
+    scale = ANALYSIS_LONG_SIDE / long_side
+    small = rgb.resize((max(1, round(rgb.width * scale)), max(1, round(rgb.height * scale))))
+    arr = np.asarray(small)
+    gray = cv2.cvtColor(arr, cv2.COLOR_RGB2GRAY).astype(np.float32)
+
+    saliency_algo = cv2.saliency.StaticSaliencySpectralResidual_create()
+    success, saliency_map = saliency_algo.computeSaliency(arr)
+    saliency_map = saliency_map.astype(np.float32) if success else np.zeros_like(gray)
+    sal_min, sal_max = saliency_map.min(), saliency_map.max()
+    saliency_norm = (
+        (saliency_map - sal_min) / (sal_max - sal_min)
+        if sal_max > sal_min
+        else np.zeros_like(saliency_map)
+    )
+
+    edges = cv2.Canny(gray.astype(np.uint8), 100, 200).astype(np.float32) / 255.0
+
+    kernel = 5
+    local_mean = cv2.blur(gray, (kernel, kernel))
+    local_sq_mean = cv2.blur(gray * gray, (kernel, kernel))
+    local_var = np.clip(local_sq_mean - local_mean * local_mean, 0.0, None)
+    variance_norm = np.clip(np.sqrt(local_var) / 128.0, 0.0, 1.0)
+
+    w_saliency, w_edge, w_variance = BADNESS_WEIGHTS
+    badness = np.clip(
+        w_saliency * saliency_norm + w_edge * edges + w_variance * variance_norm, 0.0, 1.0
+    )
+
+    return SuitabilityMap(
+        badness=badness.astype(np.float32),
+        variance=variance_norm.astype(np.float32),
+        brightness=gray.astype(np.float32),
+    )
