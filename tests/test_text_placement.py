@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 from PIL import Image
 
 from src.stages.text_placement import _integral_image, _rect_sum, _rect_sums_for_size
@@ -160,3 +161,31 @@ def test_search_candidates_flags_requires_scrim_when_nothing_clears_threshold():
     )
 
     assert all(c.requires_scrim for c in candidates)
+
+
+def test_pick_best_selects_highest_combined_score():
+    from src.stages.text_placement import Candidate, pick_best
+
+    clean_small_font = Candidate(
+        x=0.1, y=0.1, w=0.3, h=0.1, font_size=14.0, badness=0.05, variance=0.05,
+        brightness=230.0, requires_scrim=False,
+    )
+    slightly_busier_large_font = Candidate(
+        x=0.5, y=0.5, w=0.5, h=0.2, font_size=26.0, badness=0.2, variance=0.2,
+        brightness=200.0, requires_scrim=False,
+    )
+    scrim_required = Candidate(
+        x=0.0, y=0.0, w=0.6, h=0.3, font_size=26.0, badness=0.5, variance=0.5,
+        brightness=100.0, requires_scrim=True,
+    )
+
+    best = pick_best([clean_small_font, slightly_busier_large_font, scrim_required])
+
+    assert best is slightly_busier_large_font
+
+
+def test_pick_best_raises_on_empty_list():
+    from src.stages.text_placement import pick_best
+
+    with pytest.raises(ValueError, match="no candidates"):
+        pick_best([])

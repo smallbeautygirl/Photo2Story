@@ -251,3 +251,21 @@ def search_candidates(
             )
         candidates.append(chosen)
     return candidates
+
+
+def pick_best(candidates: list[Candidate]) -> Candidate:
+    """Rank candidates by suitability + achieved font size, penalizing a
+    scrim requirement, and return the highest scorer."""
+    if not candidates:
+        raise ValueError("pick_best called with no candidates")
+
+    def score(candidate: Candidate) -> float:
+        font_ratio = (candidate.font_size - FONT_SIZE_MIN) / (FONT_SIZE_MAX - FONT_SIZE_MIN)
+        penalty = RANK_SCRIM_PENALTY if candidate.requires_scrim else 0.0
+        return (
+            RANK_SUITABILITY_WEIGHT * (1 - candidate.badness)
+            + RANK_FONT_WEIGHT * font_ratio
+            - penalty
+        )
+
+    return max(candidates, key=score)
