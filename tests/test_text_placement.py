@@ -58,3 +58,29 @@ def test_analyze_suitability_brightness_matches_grayscale_level():
 
     assert analyze_suitability(dark).brightness.mean() < 60
     assert analyze_suitability(light).brightness.mean() > 200
+
+
+def test_analyze_suitability_detects_salient_shapes_via_saliency_weight():
+    """A region with a salient shape (white circle on gray background) must score
+    as higher badness than a plain uniform region, driven by the saliency weight
+    contribution even though both regions are locally flat by edge/variance standards."""
+    from src.stages.text_placement import analyze_suitability
+
+    size = 200
+    arr = np.full((size, size, 3), 128, dtype=np.uint8)
+
+    # Add a white circle to the right half centered at (150, 100)
+    center_y, center_x = size // 2, 3 * size // 4
+    radius = 20
+    y, x = np.ogrid[:size, :size]
+    mask = (x - center_x) ** 2 + (y - center_y) ** 2 <= radius**2
+    arr[mask] = 255
+
+    image = Image.fromarray(arr, mode="RGB")
+    suitability = analyze_suitability(image)
+
+    grid_h, grid_w = suitability.badness.shape
+    left_region = suitability.badness[:, : grid_w // 2]
+    right_region = suitability.badness[:, grid_w // 2 :]
+
+    assert left_region.mean() < right_region.mean()
