@@ -116,13 +116,15 @@ alone would miss. Mean brightness per cell is tracked separately — it is
 ## Candidate rectangle search
 
 Three fixed shape presets, matching the reference books' paragraph-block vs.
-short-caption shapes:
+short-caption shapes, tracked on each `Candidate` as `preset` so a page's
+chosen shape is inspectable (for logging/debugging), not just its raw
+geometry:
 
 | Preset | Width (fraction of page width) |
 |---|---|
-| narrow-tall | 0.28 |
+| narrow_tall | 0.28 |
 | medium | 0.45 |
-| wide-short | 0.65 |
+| wide_short | 0.65 |
 
 For each preset, independently:
 
@@ -139,8 +141,8 @@ For each preset, independently:
    `requires_scrim=True`.
 
 This produces exactly 3 `Candidate` objects per page
-(`x, y, w, h, font_size, badness, requires_scrim`), each already fitted with
-its own best achievable font size.
+(`x, y, w, h, font_size, badness, requires_scrim, preset`), each already
+fitted with its own best achievable font size.
 
 ## Ranking
 
@@ -193,6 +195,7 @@ is no further fallback step (e.g. "try the next candidate") after the scrim
 - **New constants**, in `src/stages/text_placement.py`:
   `FONT_SIZE_MIN = 14`, `FONT_SIZE_MAX = 26`, `FONT_SIZE_STEP = 2`,
   `SAFE_THRESHOLD = 0.35`, `SCRIM_OPACITY = 0.55`,
+  `SHAPE_PRESET_NAMES = ("narrow_tall", "medium", "wide_short")`,
   `SHAPE_PRESET_WIDTHS = (0.28, 0.45, 0.65)`, the badness weights
   `(0.5, 0.3, 0.2)`, the ranking weights `(0.6, 0.4, 0.25)`, and the
   analysis-grid target size (~200px long side).
@@ -211,6 +214,9 @@ APIs, no GPU, so none of the existing mocking patterns are needed here:
   whose aspect ratio doesn't match the page's; assert the returned map's
   aspect ratio matches the page, not the raw image (i.e. the cropped-away
   margin never influences the badness map).
+- `test_search_candidates_returns_one_per_shape_preset_with_matching_preset_field`
+  — assert each returned `Candidate.preset` matches the preset that produced
+  it, in `SHAPE_PRESET_NAMES` order.
 - `test_search_candidates_narrower_preset_gets_smaller_or_equal_font_for_long_caption`
   — a narrower preset must never end up with a larger font than a wider one
   for the same caption.

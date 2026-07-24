@@ -10,6 +10,7 @@ docs/superpowers/specs/2026-07-22-picture-book-text-overlay-design.md.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Literal
 
 import cv2
 import numpy as np
@@ -30,6 +31,7 @@ SCRIM_OPACITY = 0.55
 CONTRAST_SAFE_VARIANCE = 0.15
 
 # Three shape presets, as a fraction of page width, tried independently.
+SHAPE_PRESET_NAMES = ("narrow_tall", "medium", "wide_short")
 SHAPE_PRESET_WIDTHS = (0.28, 0.45, 0.65)
 
 # badness = w_saliency * saliency + w_edge * edge_density + w_variance * variance
@@ -53,6 +55,8 @@ MAX_HEIGHT_FRACTION = 0.6
 # Padding inside a candidate rectangle, in points, on every side of the text.
 CANDIDATE_PAD_PT = 10.0
 
+ShapePreset = Literal["narrow_tall", "medium", "wide_short"]
+
 
 @dataclass(frozen=True)
 class BadnessMap:
@@ -69,7 +73,9 @@ class Candidate:
     """One candidate text placement. x/y/w/h are fractions of the final
     rendered page (x, w relative to width; y, h relative to height, measured
     from the top) -- i.e. of the illustration after its cover-fit crop, not
-    of the raw illustration file."""
+    of the raw illustration file. `preset` is the shape preset that produced
+    this candidate; `None` for candidates not produced by `search_candidates`
+    (e.g. hand-built in tests)."""
 
     x: float
     y: float
@@ -80,6 +86,7 @@ class Candidate:
     variance: float
     brightness: float
     requires_scrim: bool
+    preset: ShapePreset | None = None
 
 
 def _integral_image(arr: np.ndarray) -> np.ndarray:
@@ -180,6 +187,7 @@ def _candidate_from_position(
     font_size: float,
     badness: float,
     requires_scrim: bool,
+    preset: ShapePreset,
 ) -> Candidate:
     area = rect_h * rect_w
     variance = _rect_sum(variance_integral, y0, x0, y0 + rect_h, x0 + rect_w) / area
@@ -194,6 +202,7 @@ def _candidate_from_position(
         variance=variance,
         brightness=brightness,
         requires_scrim=requires_scrim,
+        preset=preset,
     )
 
 
@@ -213,7 +222,7 @@ def search_candidates(
     grid_h, grid_w = badness_map.badness.shape
 
     candidates: list[Candidate] = []
-    for width_fraction in SHAPE_PRESET_WIDTHS:
+    for preset, width_fraction in zip(SHAPE_PRESET_NAMES, SHAPE_PRESET_WIDTHS):
         rect_w_pt = width_fraction * page_width
         max_text_width_pt = rect_w_pt - 2 * CANDIDATE_PAD_PT
 
@@ -250,6 +259,7 @@ def search_candidates(
                     font_size,
                     best_badness,
                     requires_scrim=False,
+                    preset=preset,
                 )
                 break
             font_size -= FONT_SIZE_STEP
@@ -271,6 +281,7 @@ def search_candidates(
                 FONT_SIZE_MIN,
                 best_badness,
                 requires_scrim=True,
+                preset=preset,
             )
         candidates.append(chosen)
     return candidates

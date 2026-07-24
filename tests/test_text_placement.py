@@ -120,8 +120,13 @@ def test_analyze_badness_only_covers_the_cover_fit_visible_region():
     assert badness_map.badness.mean() < 0.1
 
 
-def test_search_candidates_returns_one_per_shape_preset():
-    from src.stages.text_placement import SHAPE_PRESET_WIDTHS, analyze_badness, search_candidates
+def test_search_candidates_returns_one_per_shape_preset_with_matching_preset_field():
+    from src.stages.text_placement import (
+        SHAPE_PRESET_NAMES,
+        SHAPE_PRESET_WIDTHS,
+        analyze_badness,
+        search_candidates,
+    )
 
     image = Image.fromarray(np.full((200, 200, 3), 230, dtype=np.uint8), mode="RGB")
     badness_map = analyze_badness(image, page_width=400.0, page_height=400.0)
@@ -132,6 +137,7 @@ def test_search_candidates_returns_one_per_shape_preset():
 
     assert len(candidates) == len(SHAPE_PRESET_WIDTHS)
     assert [round(c.w, 2) for c in candidates] == [round(w, 2) for w in SHAPE_PRESET_WIDTHS]
+    assert [c.preset for c in candidates] == list(SHAPE_PRESET_NAMES)
 
 
 def test_search_candidates_narrower_preset_gets_smaller_or_equal_font_for_long_caption():
