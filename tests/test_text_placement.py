@@ -27,6 +27,23 @@ def test_rect_sums_for_size_matches_direct_sums_at_every_position():
             assert sums[y0, x0] == arr[y0 : y0 + 2, x0 : x0 + 3].sum()
 
 
+def test_mask_gutter_straddling_sets_straddling_positions_to_inf():
+    from src.stages.text_placement import _mask_gutter_straddling
+
+    sums = np.zeros((1, 10))
+
+    masked = _mask_gutter_straddling(sums, rect_w=4, gutter_col=5)
+
+    # x0=1: window [1, 5) ends exactly at the gutter column -- doesn't straddle it.
+    assert masked[0, 1] == 0.0
+    # x0=2: window [2, 6) covers column 5 -- straddles.
+    assert masked[0, 2] == np.inf
+    # x0=3: window [3, 7) covers column 5 -- straddles.
+    assert masked[0, 3] == np.inf
+    # x0=5: window [5, 9) starts exactly at the gutter column -- doesn't straddle it.
+    assert masked[0, 5] == 0.0
+
+
 def test_analyze_badness_scores_flat_region_low_and_textured_region_high():
     """A flat light region and a high-contrast checkerboard region: the
     checkerboard must score as less text-safe (higher badness)."""
@@ -190,6 +207,26 @@ def test_search_candidates_flags_requires_scrim_when_nothing_clears_threshold():
     )
 
     assert all(c.requires_scrim for c in candidates)
+
+
+def test_search_candidates_skips_wide_short_preset_when_has_gutter():
+    """`wide_short` (0.65 of the page width) is wider than half a spread page
+    and can never avoid straddling the binding gutter -- it must be skipped
+    outright, not returned with a meaningless best-effort placement."""
+    from src.stages.text_placement import BadnessMap, search_candidates
+
+    badness_map = BadnessMap(
+        badness=np.zeros((200, 200), dtype=np.float32),
+        variance=np.zeros((200, 200), dtype=np.float32),
+        brightness=np.zeros((200, 200), dtype=np.float32),
+    )
+
+    candidates = search_candidates(
+        badness_map, "A short caption.", "Helvetica", "en", 400.0, 400.0, has_gutter=True
+    )
+
+    assert len(candidates) == 2
+    assert all(c.preset != "wide_short" for c in candidates)
 
 
 def test_pick_best_selects_highest_combined_score():

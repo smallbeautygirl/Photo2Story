@@ -24,7 +24,8 @@ rather than relying on an illustrator having left one.
 - **Replaces** `picture_book` and `picture_book_spread` entirely. Both use
   the same per-image pipeline — `picture_book_spread` already generates one
   wide illustration per spread (`SPREAD_IMAGE_SIZE` in `illustrate_fal.py`),
-  so no separate spread-specific logic is needed.
+  so no separate spread-specific analysis logic is needed, only a gutter
+  constraint on the candidate search (see "Candidate rectangle search").
 - **Unchanged**: `image_top_text_bottom` (`build_pdf`, the legacy layout used
   by ablation configs).
 - **No config schema change.** `page_layout: picture_book` /
@@ -143,9 +144,18 @@ For each preset, independently:
    `FONT_SIZE_MIN`, keep the `FONT_SIZE_MIN` result anyway, flagged
    `requires_scrim=True`.
 
-This produces exactly 3 `Candidate` objects per page
+This produces up to 3 `Candidate` objects per page
 (`x, y, w, h, font_size, badness, requires_scrim, preset`), each already
 fitted with its own best achievable font size.
+
+**Spreads and the gutter:** `picture_book_spread` pages have a physical
+binding fold (the gutter) at the page's horizontal midpoint. Width fractions
+are relative to the full spread width, so `wide_short` (0.65) is wider than
+either half (0.5) and can never avoid straddling the fold — it is skipped
+outright for spread pages, leaving up to 2 candidates. `narrow_tall` and
+`medium` fit within a half but aren't guaranteed to land there, so their
+position search additionally excludes any placement that would straddle the
+gutter column.
 
 ## Ranking
 
@@ -226,6 +236,11 @@ APIs, no GPU, so none of the existing mocking patterns are needed here:
 - `test_search_candidates_flags_requires_scrim_when_nothing_clears_threshold`
   — an entirely noisy synthetic image; assert every candidate comes back
   flagged `requires_scrim=True`.
+- `test_mask_gutter_straddling_sets_straddling_positions_to_inf` — direct
+  unit test of the exclusion helper against a small synthetic `sums` array.
+- `test_search_candidates_skips_wide_short_preset_when_has_gutter` —
+  `has_gutter=True`; assert no returned candidate is `wide_short` and only 2
+  candidates come back.
 - `test_pick_best_selects_highest_combined_score` — hand-constructed
   `Candidate` objects (no image needed); assert the ranking formula picks
   the expected one.

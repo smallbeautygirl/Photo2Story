@@ -214,6 +214,7 @@ def build_picture_book_pdf(
     font_path: str | None = None,
     page_size: tuple[float, float] = A4,
     language: str = "en",
+    has_gutter: bool = False,
 ) -> None:
     """Build a picture-book PDF: each page is a full-bleed illustration with
     its caption drawn directly on top, in a programmatically detected
@@ -234,7 +235,9 @@ def build_picture_book_pdf(
 
         if page_text.strip():
             badness_map = analyze_badness(image, page_w, page_h)
-            candidates = search_candidates(badness_map, page_text, font, language, page_w, page_h)
+            candidates = search_candidates(
+                badness_map, page_text, font, language, page_w, page_h, has_gutter=has_gutter
+            )
             best = pick_best(candidates)
             _draw_caption_overlay(c, best, page_text, font, page_w, page_h, language)
 
@@ -252,8 +255,9 @@ def build_spread_pdf(
     """Build a picture-book PDF where each page is a double-page spread (one wide
     illustration spanning two A4 widths at one A4 height). Reuses the same
     full-bleed-illustration-plus-detected-overlay pipeline as
-    `build_picture_book_pdf`, just at the spread's doubled page width -- so the
-    badness analysis and candidate search run against the wider page.
+    `build_picture_book_pdf`, just at the spread's doubled page width, with
+    `has_gutter=True` so candidate search avoids the physical binding fold at
+    the page's horizontal midpoint.
     """
     build_picture_book_pdf(
         illustration_paths,
@@ -262,6 +266,7 @@ def build_spread_pdf(
         font_path,
         page_size=(SPREAD_PAGE_W, SPREAD_PAGE_H),
         language=language,
+        has_gutter=True,
     )
 
 

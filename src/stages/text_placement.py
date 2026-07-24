@@ -112,6 +112,16 @@ def _rect_sums_for_size(integral: np.ndarray, rect_h: int, rect_w: int) -> np.nd
     return a - b - c + d
 
 
+def _mask_gutter_straddling(sums: np.ndarray, rect_w: int, gutter_col: int) -> np.ndarray:
+    """Set the badness sum to +inf for every x0 position whose rect_w-wide
+    window would straddle `gutter_col`, so `argmin` never selects it."""
+    masked = sums.copy()
+    for x0 in range(sums.shape[1]):
+        if x0 < gutter_col < x0 + rect_w:
+            masked[:, x0] = np.inf
+    return masked
+
+
 def visible_crop_box(
     image_width: float, image_height: float, page_width: float, page_height: float
 ) -> tuple[float, float, float, float]:
@@ -213,16 +223,25 @@ def search_candidates(
     language: str,
     page_width: float,
     page_height: float,
+    has_gutter: bool = False,
 ) -> list[Candidate]:
-    """Search each of the three shape presets independently for its best
-    text-safe rectangle, font-fitting the caption to each shape as it goes."""
+    """Search each shape preset independently for its best text-safe
+    rectangle, font-fitting the caption to each shape as it goes. When
+    `has_gutter` is set (a `picture_book_spread` page, split by the physical
+    binding fold at the page's horizontal midpoint), a preset wider than half
+    the page is skipped outright -- it can never avoid straddling the fold --
+    and every remaining preset's search excludes positions that would."""
     badness_integral = _integral_image(badness_map.badness)
     variance_integral = _integral_image(badness_map.variance)
     brightness_integral = _integral_image(badness_map.brightness)
     grid_h, grid_w = badness_map.badness.shape
+    gutter_col = grid_w // 2 if has_gutter else None
 
     candidates: list[Candidate] = []
     for preset, width_fraction in zip(SHAPE_PRESET_NAMES, SHAPE_PRESET_WIDTHS):
+        if has_gutter and width_fraction > 0.5:
+            continue
+
         rect_w_pt = width_fraction * page_width
         max_text_width_pt = rect_w_pt - 2 * CANDIDATE_PAD_PT
 
@@ -239,6 +258,8 @@ def search_candidates(
             rect_w = min(max(round(width_fraction * grid_w), 1), grid_w)
 
             sums = _rect_sums_for_size(badness_integral, rect_h, rect_w)
+            if gutter_col is not None:
+                sums = _mask_gutter_straddling(sums, rect_w, gutter_col)
             area = rect_h * rect_w
             y0, x0 = (int(i) for i in np.unravel_index(np.argmin(sums), sums.shape))
             best_badness = float(sums[y0, x0] / area)
