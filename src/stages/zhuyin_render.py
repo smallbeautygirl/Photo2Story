@@ -75,9 +75,12 @@ def draw_zhuyin_line(
 
     Each character is followed by its stacked main Bopomofo letters (small
     font, top-aligned within the character's height) and its tone mark
-    positioned beside the stack: 2nd tone (ˊ) upper-right, 3rd tone (ˇ)
-    mid-right, 4th tone (ˋ) lower-right, neutral tone (˙) above the first
-    letter, 1st tone (no mark) drawn nowhere.
+    positioned beside the *last* letter of the stack -- not a fixed height
+    within the character cell, so it stays visually attached to the stack
+    regardless of how many letters it has: 2nd tone (ˊ) just above the last
+    letter, 3rd tone (ˇ) level with it, 4th tone (ˋ) just below it. Neutral
+    tone (˙) is the exception, drawn above the first (topmost) letter. 1st
+    tone (no mark) is drawn nowhere.
     """
     zy_size = _zhuyin_font_size(font_size)
     total_width = sum(_cell_width(zc, font, font_size) for zc in line)
@@ -92,10 +95,12 @@ def draw_zhuyin_line(
 
         if zc.main or zc.tone_mark:
             c.setFont(font, zy_size)
-            letter_x = cursor_x + char_w + 1.0
+            letter_x = cursor_x + char_w + 1.5
             letter_y = y + font_size - zy_size
+            last_letter_y = letter_y
             for letter in zc.main:
                 c.drawString(letter_x, letter_y, letter)
+                last_letter_y = letter_y
                 letter_y -= zy_size * 1.05
 
             if zc.tone_mark:
@@ -109,12 +114,17 @@ def draw_zhuyin_line(
                     tone_y = y + font_size - zy_size + zy_size * 1.05
                 else:
                     tone_x = letter_x + main_w + 0.5
+                    # Anchored to the *last* main letter's row, not the character
+                    # cell's fixed top -- a mark pinned to the absolute top
+                    # regardless of stack length drifts away from a multi-letter
+                    # stack's actual last letter, reading as floating above it
+                    # rather than sitting beside it.
                     if zc.tone_mark == "ˊ":
-                        tone_y = y + font_size - zy_size
+                        tone_y = last_letter_y + zy_size * 0.3
                     elif zc.tone_mark == "ˇ":
-                        tone_y = y + (font_size - zy_size) / 2
+                        tone_y = last_letter_y
                     else:  # "ˋ"
-                        tone_y = y
+                        tone_y = last_letter_y - zy_size * 0.3
                 c.drawString(tone_x, tone_y, zc.tone_mark)
 
         cursor_x += cell_w

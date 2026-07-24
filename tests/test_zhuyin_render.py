@@ -113,6 +113,54 @@ def test_draw_zhuyin_line_positions_all_four_tone_marks_distinctly():
     assert tone_positions["˙"][1] > tone_positions["ˊ"][1]
 
 
+def test_draw_zhuyin_line_tone_mark_tracks_last_letter_not_fixed_cell_height():
+    """Regression test: a tone mark must be anchored to the stack's *last*
+    letter, not a fixed height within the character cell -- otherwise a
+    multi-letter stack's tone mark drifts away from its own letters (reads as
+    floating above the stack) the more letters that stack has."""
+    from reportlab.pdfbase.cidfonts import UnicodeCIDFont
+    from reportlab.pdfbase import pdfmetrics
+
+    from src.stages.zhuyin_render import draw_zhuyin_line
+    from src.utils.zhuyin import ZhuyinChar
+
+    pdfmetrics.registerFont(UnicodeCIDFont("STSong-Light"))
+
+    calls = []
+
+    class _RecordingCanvas:
+        def __init__(self, real):
+            self._real = real
+
+        def setFillColor(self, *a, **kw):
+            self._real.setFillColor(*a, **kw)
+
+        def setFont(self, *a, **kw):
+            self._real.setFont(*a, **kw)
+
+        def drawString(self, x, y, text):
+            calls.append((x, y, text))
+            self._real.drawString(x, y, text)
+
+    from reportlab.pdfgen import canvas as canvas_module
+
+    real_canvas = canvas_module.Canvas("/dev/null")
+    wrapped = _RecordingCanvas(real_canvas)
+
+    # Same tone mark, different stack lengths (1 letter vs. 3 letters).
+    zchars = [
+        ZhuyinChar(char="一", main="ㄧ", tone_mark="ˊ"),
+        ZhuyinChar(char="娘", main="ㄋㄧㄤ", tone_mark="ˊ"),
+    ]
+    draw_zhuyin_line(wrapped, zchars, "STSong-Light", 24, x=50, y=700, w=400, align="left")
+
+    tone_ys = [y for _, y, text in calls if text == "ˊ"]
+    assert len(tone_ys) == 2
+    # The 3-letter stack's last letter sits lower than the 1-letter stack's --
+    # its tone mark must track that, landing lower too, not at the same height.
+    assert tone_ys[1] < tone_ys[0]
+
+
 def test_draw_zhuyin_line_uses_given_fill_color():
     from reportlab.lib import colors
     from reportlab.pdfbase.cidfonts import UnicodeCIDFont
