@@ -33,6 +33,9 @@ rather than relying on an illustrator having left one.
 - The illustration is now drawn full-bleed, cover-fit (scaled and cropped to
   fill the whole page) instead of contain-fit into a sub-zone, since there is
   no outside zone left to reserve.
+- A **wordless page** (empty or whitespace-only caption) skips analysis and
+  overlay entirely — just the full-bleed illustration, no candidate search,
+  no badness map computed.
 
 ## Architecture
 

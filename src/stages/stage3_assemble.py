@@ -218,7 +218,8 @@ def build_picture_book_pdf(
     """Build a picture-book PDF: each page is a full-bleed illustration with
     its caption drawn directly on top, in a programmatically detected
     text-safe region (see text_placement.py) rather than a reserved zone
-    outside the art.
+    outside the art. A wordless page (empty or whitespace-only caption) skips
+    detection and overlay entirely -- just the full-bleed illustration.
     """
     assert len(illustration_paths) == len(pages), (
         f"Mismatch: {len(illustration_paths)} illustrations vs {len(pages)} pages"
@@ -229,12 +230,14 @@ def build_picture_book_pdf(
     c = canvas.Canvas(output_path, pagesize=page_size)
     for img_path, page_text in zip(illustration_paths, pages):
         image = Image.open(img_path).convert("RGB")
-        badness_map = analyze_badness(image, page_w, page_h)
-        candidates = search_candidates(badness_map, page_text, font, language, page_w, page_h)
-        best = pick_best(candidates)
-
         _cover_fit_image(c, image, page_w, page_h)
-        _draw_caption_overlay(c, best, page_text, font, page_w, page_h, language)
+
+        if page_text.strip():
+            badness_map = analyze_badness(image, page_w, page_h)
+            candidates = search_candidates(badness_map, page_text, font, language, page_w, page_h)
+            best = pick_best(candidates)
+            _draw_caption_overlay(c, best, page_text, font, page_w, page_h, language)
+
         c.showPage()
     c.save()
 

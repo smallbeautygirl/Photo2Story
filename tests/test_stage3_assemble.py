@@ -55,6 +55,34 @@ def test_build_picture_book_pdf_creates_file_long_caption(tmp_path, tmp_images):
     assert Path(out_path).stat().st_size > 1000
 
 
+def test_build_picture_book_pdf_skips_overlay_for_wordless_page(tmp_path, tmp_images, monkeypatch):
+    """A page whose caption is empty (or whitespace-only) is a wordless
+    page: it must render as a plain full-bleed illustration, with no
+    candidate search or overlay drawn at all."""
+    from src.stages import stage3_assemble
+    from src.stages.stage3_assemble import build_picture_book_pdf
+    from src.stages.text_placement import Candidate
+
+    stub_candidate = Candidate(
+        x=0.1, y=0.1, w=0.3, h=0.1, font_size=20.0, badness=0.1, variance=0.1,
+        brightness=200.0, requires_scrim=False,
+    )
+    called = []
+    monkeypatch.setattr(
+        stage3_assemble,
+        "search_candidates",
+        lambda *args, **kwargs: called.append(True) or [stub_candidate],
+    )
+
+    pages = ["Once upon a time.", "   ", ""]
+    out_path = str(tmp_path / "wordless.pdf")
+
+    build_picture_book_pdf(tmp_images[:3], pages, out_path)
+
+    assert Path(out_path).exists()
+    assert len(called) == 1
+
+
 def test_build_picture_book_pdf_wrong_count_raises(tmp_path, tmp_images):
     from src.stages.stage3_assemble import build_picture_book_pdf
 
