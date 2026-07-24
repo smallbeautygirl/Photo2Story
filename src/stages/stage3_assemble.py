@@ -19,7 +19,7 @@ from src.stages.text_placement import (
     CONTRAST_SAFE_VARIANCE,
     SCRIM_OPACITY,
     Candidate,
-    analyze_suitability,
+    analyze_badness,
     pick_best,
     search_candidates,
 )
@@ -98,7 +98,7 @@ def _cover_fit_image(
 ) -> None:
     """Scale the already-opened illustration to fill the whole page,
     cropping any excess. Takes a loaded image rather than a path so the
-    caller can reuse the same load for suitability analysis."""
+    caller can reuse the same load for badness analysis."""
     img_w, img_h = image.size
     scale = max(page_w / img_w, page_h / img_h)
     draw_w, draw_h = img_w * scale, img_h * scale
@@ -226,8 +226,8 @@ def build_picture_book_pdf(
     c = canvas.Canvas(output_path, pagesize=page_size)
     for img_path, page_text in zip(illustration_paths, pages):
         image = Image.open(img_path).convert("RGB")
-        suitability = analyze_suitability(image)
-        candidates = search_candidates(suitability, page_text, font, language, page_w, page_h)
+        badness_map = analyze_badness(image)
+        candidates = search_candidates(badness_map, page_text, font, language, page_w, page_h)
         best = pick_best(candidates)
 
         _cover_fit_image(c, image, page_w, page_h)
@@ -247,7 +247,7 @@ def build_spread_pdf(
     illustration spanning two A4 widths at one A4 height). Reuses the same
     full-bleed-illustration-plus-detected-overlay pipeline as
     `build_picture_book_pdf`, just at the spread's doubled page width -- so the
-    suitability analysis and candidate search run against the wider page.
+    badness analysis and candidate search run against the wider page.
     """
     build_picture_book_pdf(
         illustration_paths,

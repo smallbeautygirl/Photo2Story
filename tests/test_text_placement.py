@@ -27,10 +27,10 @@ def test_rect_sums_for_size_matches_direct_sums_at_every_position():
             assert sums[y0, x0] == arr[y0 : y0 + 2, x0 : x0 + 3].sum()
 
 
-def test_analyze_suitability_scores_flat_region_low_and_textured_region_high():
+def test_analyze_badness_scores_flat_region_low_and_textured_region_high():
     """A flat light region and a high-contrast checkerboard region: the
     checkerboard must score as less text-safe (higher badness)."""
-    from src.stages.text_placement import analyze_suitability
+    from src.stages.text_placement import analyze_badness
 
     size = 200
     arr = np.full((size, size, 3), 230, dtype=np.uint8)
@@ -41,27 +41,27 @@ def test_analyze_suitability_scores_flat_region_low_and_textured_region_high():
     arr[:, half:, 2] = checker
     image = Image.fromarray(arr, mode="RGB")
 
-    suitability = analyze_suitability(image)
-    grid_h, grid_w = suitability.badness.shape
-    flat_region = suitability.badness[:, : grid_w // 4]
-    textured_region = suitability.badness[:, 3 * grid_w // 4 :]
+    badness_map = analyze_badness(image)
+    grid_h, grid_w = badness_map.badness.shape
+    flat_region = badness_map.badness[:, : grid_w // 4]
+    textured_region = badness_map.badness[:, 3 * grid_w // 4 :]
 
     assert flat_region.mean() < textured_region.mean()
 
 
-def test_analyze_suitability_brightness_matches_grayscale_level():
+def test_analyze_badness_brightness_matches_grayscale_level():
     """A uniformly dark image's brightness channel must average low; a
     uniformly light image's must average high."""
-    from src.stages.text_placement import analyze_suitability
+    from src.stages.text_placement import analyze_badness
 
     dark = Image.fromarray(np.full((100, 100, 3), 20, dtype=np.uint8), mode="RGB")
     light = Image.fromarray(np.full((100, 100, 3), 235, dtype=np.uint8), mode="RGB")
 
-    assert analyze_suitability(dark).brightness.mean() < 60
-    assert analyze_suitability(light).brightness.mean() > 200
+    assert analyze_badness(dark).brightness.mean() < 60
+    assert analyze_badness(light).brightness.mean() > 200
 
 
-def test_analyze_suitability_saliency_weight_drives_most_of_the_badness_gap(monkeypatch):
+def test_analyze_badness_saliency_weight_drives_most_of_the_badness_gap(monkeypatch):
     """Saliency (weight 0.5, the largest of the three) must account for most
     of the badness gap between a salient shape and plain background -- not
     edge density and variance alone, which only produce a small boundary
@@ -80,7 +80,7 @@ def test_analyze_suitability_saliency_weight_drives_most_of_the_badness_gap(monk
     image = Image.fromarray(arr, mode="RGB")
 
     # Measure badness gap with full weights
-    full = text_placement.analyze_suitability(image)
+    full = text_placement.analyze_badness(image)
     grid_h, grid_w = full.badness.shape
     left_mean = full.badness[:, : grid_w // 2].mean()
     right_mean = full.badness[:, grid_w // 2 :].mean()
@@ -88,7 +88,7 @@ def test_analyze_suitability_saliency_weight_drives_most_of_the_badness_gap(monk
 
     # Measure badness gap with saliency zeroed
     monkeypatch.setattr(text_placement, "BADNESS_WEIGHTS", (0.0, 0.3, 0.2))
-    no_saliency = text_placement.analyze_suitability(image)
+    no_saliency = text_placement.analyze_badness(image)
     no_sal_left_mean = no_saliency.badness[:, : grid_w // 2].mean()
     no_sal_right_mean = no_saliency.badness[:, grid_w // 2 :].mean()
     no_saliency_gap = no_sal_right_mean - no_sal_left_mean
@@ -98,13 +98,13 @@ def test_analyze_suitability_saliency_weight_drives_most_of_the_badness_gap(monk
 
 
 def test_search_candidates_returns_one_per_shape_preset():
-    from src.stages.text_placement import SHAPE_PRESET_WIDTHS, analyze_suitability, search_candidates
+    from src.stages.text_placement import SHAPE_PRESET_WIDTHS, analyze_badness, search_candidates
 
     image = Image.fromarray(np.full((200, 200, 3), 230, dtype=np.uint8), mode="RGB")
-    suitability = analyze_suitability(image)
+    badness_map = analyze_badness(image)
 
     candidates = search_candidates(
-        suitability, "A short caption.", "Helvetica", "en", 400.0, 400.0
+        badness_map, "A short caption.", "Helvetica", "en", 400.0, 400.0
     )
 
     assert len(candidates) == len(SHAPE_PRESET_WIDTHS)
@@ -122,22 +122,22 @@ def test_search_candidates_narrower_preset_gets_smaller_or_equal_font_for_long_c
     out to score as near-zero badness everywhere at every rectangle size --
     verified empirically up to 300 repeated words with no font-size change --
     so it can never exercise this code path regardless of caption length.
-    Instead, a SuitabilityMap is built directly with a hard safe/unsafe
+    Instead, a BadnessMap is built directly with a hard safe/unsafe
     boundary partway down the grid: a rectangle that must grow past that
     boundary to fit its text picks up unsafe badness and is forced smaller.
     """
-    from src.stages.text_placement import SuitabilityMap, search_candidates
+    from src.stages.text_placement import BadnessMap, search_candidates
 
     grid_size = 200
     safe_rows = 60
     badness = np.zeros((grid_size, grid_size), dtype=np.float32)
     badness[safe_rows:] = 0.9
-    suitability = SuitabilityMap(
+    badness_map = BadnessMap(
         badness=badness, variance=np.zeros_like(badness), brightness=np.zeros_like(badness)
     )
     long_caption = " ".join(["word"] * 15)
 
-    candidates = search_candidates(suitability, long_caption, "Helvetica", "en", 400.0, 400.0)
+    candidates = search_candidates(badness_map, long_caption, "Helvetica", "en", 400.0, 400.0)
     by_width = sorted(candidates, key=lambda c: c.w)
 
     assert by_width[0].font_size < by_width[-1].font_size
@@ -149,15 +149,15 @@ def test_search_candidates_flags_requires_scrim_when_nothing_clears_threshold():
     noise, which by chance can still contain locally smoother pockets that
     dip below SAFE_THRESHOLD -- so no candidate rectangle anywhere can clear
     the threshold."""
-    from src.stages.text_placement import analyze_suitability, search_candidates
+    from src.stages.text_placement import analyze_badness, search_candidates
 
     rng = np.random.default_rng(0)
     arr = (rng.integers(0, 2, size=(200, 200, 3)) * 255).astype(np.uint8)
     image = Image.fromarray(arr, mode="RGB")
-    suitability = analyze_suitability(image)
+    badness_map = analyze_badness(image)
 
     candidates = search_candidates(
-        suitability, "A caption that needs placement.", "Helvetica", "en", 400.0, 400.0
+        badness_map, "A caption that needs placement.", "Helvetica", "en", 400.0, 400.0
     )
 
     assert all(c.requires_scrim for c in candidates)
@@ -207,33 +207,33 @@ def test_pick_best_penalizes_scrim_requirement():
     assert best is without_scrim
 
 
-def test_pick_best_weighs_suitability_above_font_size():
-    """Constructed so the correct weighting (0.6 suitability, 0.4 font size)
-    and a swapped weighting (0.4 suitability, 0.6 font size) disagree on the
-    winner -- catching a formula that swaps `RANK_SUITABILITY_WEIGHT` and
+def test_pick_best_weighs_badness_above_font_size():
+    """Constructed so the correct weighting (0.6 badness, 0.4 font size) and
+    a swapped weighting (0.4 badness, 0.6 font size) disagree on the winner
+    -- catching a formula that swaps `RANK_BADNESS_WEIGHT` and
     `RANK_FONT_WEIGHT`.
 
-    high_suitability_small_font: badness=0.0 (suitability term 1.0), font_size
-    at FONT_SIZE_MIN (font_ratio 0.0) -> correct score 0.6, swapped score 0.4.
-    low_suitability_large_font: badness=1.0 (suitability term 0.0), font_size
+    low_badness_small_font: badness=0.0 ((1 - badness) term 1.0), font_size at
+    FONT_SIZE_MIN (font_ratio 0.0) -> correct score 0.6, swapped score 0.4.
+    high_badness_large_font: badness=1.0 ((1 - badness) term 0.0), font_size
     at FONT_SIZE_MAX (font_ratio 1.0) -> correct score 0.4, swapped score 0.6.
     The correct formula must pick the first; a swapped-weight formula would
     pick the second instead.
     """
     from src.stages.text_placement import Candidate, pick_best
 
-    high_suitability_small_font = Candidate(
+    low_badness_small_font = Candidate(
         x=0.1, y=0.1, w=0.3, h=0.1, font_size=14.0, badness=0.0, variance=0.1,
         brightness=200.0, requires_scrim=False,
     )
-    low_suitability_large_font = Candidate(
+    high_badness_large_font = Candidate(
         x=0.1, y=0.1, w=0.3, h=0.1, font_size=26.0, badness=1.0, variance=0.1,
         brightness=200.0, requires_scrim=False,
     )
 
-    best = pick_best([high_suitability_small_font, low_suitability_large_font])
+    best = pick_best([low_badness_small_font, high_badness_large_font])
 
-    assert best is high_suitability_small_font
+    assert best is low_badness_small_font
 
 
 def test_pick_best_raises_on_empty_list():

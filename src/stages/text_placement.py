@@ -1,6 +1,6 @@
 """Text-safe region detection for full-bleed picture-book illustrations.
 
-Analyzes an illustration into a per-pixel "suitability map" using classical
+Analyzes an illustration into a per-pixel badness map using classical
 computer vision (saliency + edge density + local variance -- no segmentation
 model, no GPU) and searches three candidate rectangle shapes for the
 best-scoring, font-fitted placement. See
@@ -35,10 +35,10 @@ SHAPE_PRESET_WIDTHS = (0.28, 0.45, 0.65)
 # badness = w_saliency * saliency + w_edge * edge_density + w_variance * variance
 BADNESS_WEIGHTS = (0.5, 0.3, 0.2)
 
-# combined = RANK_SUITABILITY_WEIGHT * (1 - badness)
+# combined = RANK_BADNESS_WEIGHT * (1 - badness)
 #          + RANK_FONT_WEIGHT * font_ratio
 #          - (RANK_SCRIM_PENALTY if requires_scrim else 0)
-RANK_SUITABILITY_WEIGHT = 0.6
+RANK_BADNESS_WEIGHT = 0.6
 RANK_FONT_WEIGHT = 0.4
 RANK_SCRIM_PENALTY = 0.25
 
@@ -55,7 +55,7 @@ CANDIDATE_PAD_PT = 10.0
 
 
 @dataclass(frozen=True)
-class SuitabilityMap:
+class BadnessMap:
     """Per-pixel analysis of one illustration, at the downsampled analysis
     resolution. All three arrays share the same (H, W) shape."""
 
@@ -104,7 +104,7 @@ def _rect_sums_for_size(integral: np.ndarray, rect_h: int, rect_w: int) -> np.nd
     return a - b - c + d
 
 
-def analyze_suitability(image: Image.Image) -> SuitabilityMap:
+def analyze_badness(image: Image.Image) -> BadnessMap:
     """Downsample `image` and compute its per-pixel text-safety badness."""
     rgb = image.convert("RGB")
     long_side = max(rgb.size)
@@ -136,7 +136,7 @@ def analyze_suitability(image: Image.Image) -> SuitabilityMap:
         w_saliency * saliency_norm + w_edge * edges + w_variance * variance_norm, 0.0, 1.0
     )
 
-    return SuitabilityMap(
+    return BadnessMap(
         badness=badness.astype(np.float32),
         variance=variance_norm.astype(np.float32),
         brightness=gray.astype(np.float32),
@@ -175,7 +175,7 @@ def _candidate_from_position(
 
 
 def search_candidates(
-    suitability: SuitabilityMap,
+    badness_map: BadnessMap,
     caption: str,
     font: str,
     language: str,
@@ -184,10 +184,10 @@ def search_candidates(
 ) -> list[Candidate]:
     """Search each of the three shape presets independently for its best
     text-safe rectangle, font-fitting the caption to each shape as it goes."""
-    badness_integral = _integral_image(suitability.badness)
-    variance_integral = _integral_image(suitability.variance)
-    brightness_integral = _integral_image(suitability.brightness)
-    grid_h, grid_w = suitability.badness.shape
+    badness_integral = _integral_image(badness_map.badness)
+    variance_integral = _integral_image(badness_map.variance)
+    brightness_integral = _integral_image(badness_map.brightness)
+    grid_h, grid_w = badness_map.badness.shape
 
     candidates: list[Candidate] = []
     for width_fraction in SHAPE_PRESET_WIDTHS:
@@ -254,7 +254,7 @@ def search_candidates(
 
 
 def pick_best(candidates: list[Candidate]) -> Candidate:
-    """Rank candidates by suitability + achieved font size, penalizing a
+    """Rank candidates by badness (inverted) + achieved font size, penalizing a
     scrim requirement, and return the highest scorer."""
     if not candidates:
         raise ValueError("pick_best called with no candidates")
@@ -263,7 +263,7 @@ def pick_best(candidates: list[Candidate]) -> Candidate:
         font_ratio = (candidate.font_size - FONT_SIZE_MIN) / (FONT_SIZE_MAX - FONT_SIZE_MIN)
         penalty = RANK_SCRIM_PENALTY if candidate.requires_scrim else 0.0
         return (
-            RANK_SUITABILITY_WEIGHT * (1 - candidate.badness)
+            RANK_BADNESS_WEIGHT * (1 - candidate.badness)
             + RANK_FONT_WEIGHT * font_ratio
             - penalty
         )

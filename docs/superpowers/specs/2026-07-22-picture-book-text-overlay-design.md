@@ -40,15 +40,15 @@ rather than relying on an illustrator having left one.
 Illustration
      │
      ▼
-Image Analysis  →  suitability map (saliency + edges + variance + brightness,
+Image Analysis  →  badness map (saliency + edges + variance + brightness,
                     structured as independent channels so a future
                     foreground mask can be added as one more channel later)
      │
      ▼
 Layout Optimization
-     ├─ rectangle search over the suitability map → 3 shape candidates
+     ├─ rectangle search over the badness map → 3 shape candidates
      ├─ font-fit each candidate (largest size that fits, reject below min)
-     └─ pick candidate maximizing (suitability score + font-size score)
+     └─ pick candidate maximizing ((1 - badness) score + font-size score)
      │
      ▼
 Text Rendering
@@ -61,19 +61,24 @@ optimization phases, kept separate from `stage3_assemble.py`'s PDF-drawing
 concerns:
 
 ```python
-def analyze_suitability(image: Image.Image) -> SuitabilityMap: ...
+def analyze_badness(image: Image.Image) -> BadnessMap: ...
 def search_candidates(
-    suitability: SuitabilityMap, caption: str, font: str, language: str
+    badness_map: BadnessMap, caption: str, font: str, language: str
 ) -> list[Candidate]: ...
 def pick_best(candidates: list[Candidate]) -> Candidate: ...
 ```
 
 `stage3_assemble.py` calls these three functions per page, then draws the
 image (cover-fit) and the caption at the position/size/color `pick_best`
-returns — it does not know how the region was chosen, matching the existing
-separation where `zhuyin_render.py` doesn't know overlay rendering exists.
+returns. It does not know *why* a region was chosen (badness, preset
+search) — matching the existing separation where `zhuyin_render.py` doesn't
+know overlay rendering exists — but it does need to know `CANDIDATE_PAD_PT`
+to draw the caption inset from the candidate rectangle's edges rather than
+flush against them; the two modules are one stage's cooperating parts, not
+separate bounded contexts, so sharing that one rendering-contract constant
+is an intentional seam, not a leak.
 
-## Image analysis: the suitability map
+## Image analysis: the badness map
 
 The illustration is downsampled to a small analysis grid (long side ~200px —
 precision beyond a few cells doesn't matter for region search, and it keeps
@@ -133,9 +138,9 @@ combined = 0.6 * (1 - badness)
 ```
 
 `pick_best` returns the candidate with the highest `combined` score.
-Suitability dominates the score; font size breaks ties toward the
+`(1 - badness)` dominates the score; font size breaks ties toward the
 better-reading shape; a scrim requirement is a real but not disqualifying
-penalty (a candidate that needs a scrim can still win if its suitability and
+penalty (a candidate that needs a scrim can still win if its badness and
 font size are clearly better than the alternatives).
 
 ## Text rendering
@@ -185,12 +190,12 @@ is no further fallback step (e.g. "try the next candidate") after the scrim
 Pure image-processing logic, fully offline and deterministic — no external
 APIs, no GPU, so none of the existing mocking patterns are needed here:
 
-- `test_analyze_suitability_scores_flat_region_low_and_textured_region_high`
+- `test_analyze_badness_scores_flat_region_low_and_textured_region_high`
   — synthetic image with a plain block and a noisy/checkerboard block;
   assert the plain block's badness is lower.
-- `test_search_candidates_prefers_larger_font_when_suitability_ties` — two
-  equally-clean regions of different size; assert the returned candidate
-  list favors the larger one's font size.
+- `test_search_candidates_narrower_preset_gets_smaller_or_equal_font_for_long_caption`
+  — a narrower preset must never end up with a larger font than a wider one
+  for the same caption.
 - `test_search_candidates_flags_requires_scrim_when_nothing_clears_threshold`
   — an entirely noisy synthetic image; assert every candidate comes back
   flagged `requires_scrim=True`.
@@ -211,7 +216,7 @@ APIs, no GPU, so none of the existing mocking patterns are needed here:
 ## Out of scope
 
 - Semantic foreground segmentation (SAM2/GroundingDINO or a hosted
-  equivalent) — the suitability-map channel list is structured to accept it
+  equivalent) — the badness-map channel list is structured to accept it
   later as one more channel; nothing is built now.
 - `image_top_text_bottom` (legacy `build_pdf`) — untouched.
 - Page size/orientation — stays A4 portrait / doubled-width spread.
