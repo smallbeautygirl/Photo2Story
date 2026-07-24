@@ -26,56 +26,7 @@ def test_build_pdf_wrong_count_raises(tmp_path, tmp_images):
         )
 
 
-def test_choose_layout_variant_picks_top_band_for_long_captions():
-    from src.stages.stage3_assemble import _choose_layout_variant, PAGE_W
-
-    long_caption = (
-        "This is a very long caption that will definitely need more than two "
-        "lines when wrapped at the page width because it just keeps going and "
-        "going and going."
-    )
-    result = _choose_layout_variant(["Short one.", long_caption], "Helvetica", PAGE_W)
-    assert result == "top_band"
-
-
-def test_choose_layout_variant_picks_bottom_caption_for_short_captions():
-    from src.stages.stage3_assemble import _choose_layout_variant, PAGE_W
-
-    result = _choose_layout_variant(["Short one.", "Another short one."], "Helvetica", PAGE_W)
-    assert result == "bottom_caption"
-
-
-def test_choose_layout_variant_uses_spread_width():
-    """The same long caption that top-bands at page width must bottom-caption
-    at a much wider width, proving the decision is measured against the
-    page_width argument rather than a hardcoded constant."""
-    from src.stages.stage3_assemble import _choose_layout_variant, PAGE_W
-
-    long_caption = (
-        "This is a long caption that will wrap to several lines at normal "
-        "page width because it just keeps going on and on with many more words."
-    )
-    narrow_result = _choose_layout_variant([long_caption], "Helvetica", PAGE_W)
-    very_wide_result = _choose_layout_variant([long_caption], "Helvetica", PAGE_W * 10)
-
-    assert narrow_result == "top_band"
-    assert very_wide_result == "bottom_caption"
-
-
-def test_text_zone_height_scales_with_longest_caption():
-    from src.stages.stage3_assemble import _text_zone_height, TOP_BAND_FONT_SIZE, PAGE_W
-
-    short_only = _text_zone_height(["Hi.", "Bye."], "Helvetica", TOP_BAND_FONT_SIZE, PAGE_W)
-    with_long = _text_zone_height(
-        ["Hi.", "This is a much longer caption that wraps across several lines of text."],
-        "Helvetica",
-        TOP_BAND_FONT_SIZE,
-        PAGE_W,
-    )
-    assert with_long > short_only
-
-
-def test_build_picture_book_pdf_creates_file_bottom_caption(tmp_path, tmp_images):
+def test_build_picture_book_pdf_creates_file_short_caption(tmp_path, tmp_images):
     from src.stages.stage3_assemble import build_picture_book_pdf
 
     pages = ["Once upon a time.", "They had fun.", "The end."]
@@ -87,7 +38,7 @@ def test_build_picture_book_pdf_creates_file_bottom_caption(tmp_path, tmp_images
     assert Path(out_path).stat().st_size > 1000
 
 
-def test_build_picture_book_pdf_creates_file_top_band(tmp_path, tmp_images):
+def test_build_picture_book_pdf_creates_file_long_caption(tmp_path, tmp_images):
     from src.stages.stage3_assemble import build_picture_book_pdf
 
     long_caption = (
@@ -102,6 +53,34 @@ def test_build_picture_book_pdf_creates_file_top_band(tmp_path, tmp_images):
 
     assert Path(out_path).exists()
     assert Path(out_path).stat().st_size > 1000
+
+
+def test_build_picture_book_pdf_skips_overlay_for_wordless_page(tmp_path, tmp_images, monkeypatch):
+    """A page whose caption is empty (or whitespace-only) is a wordless
+    page: it must render as a plain full-bleed illustration, with no
+    candidate search or overlay drawn at all."""
+    from src.stages import stage3_assemble
+    from src.stages.stage3_assemble import build_picture_book_pdf
+    from src.stages.text_placement import Candidate
+
+    stub_candidate = Candidate(
+        x=0.1, y=0.1, w=0.3, h=0.1, font_size=20.0, badness=0.1, variance=0.1,
+        brightness=200.0, requires_scrim=False,
+    )
+    called = []
+    monkeypatch.setattr(
+        stage3_assemble,
+        "search_candidates",
+        lambda *args, **kwargs: called.append(True) or [stub_candidate],
+    )
+
+    pages = ["Once upon a time.", "   ", ""]
+    out_path = str(tmp_path / "wordless.pdf")
+
+    build_picture_book_pdf(tmp_images[:3], pages, out_path)
+
+    assert Path(out_path).exists()
+    assert len(called) == 1
 
 
 def test_build_picture_book_pdf_wrong_count_raises(tmp_path, tmp_images):
@@ -171,50 +150,6 @@ def test_resolve_cjk_font_falls_back_to_builtin_cid_font(monkeypatch):
     result = mod._resolve_cjk_font()
 
     assert result == "STSong-Light"
-
-
-def test_choose_layout_variant_uses_zhuyin_wrapping_for_zh_tw():
-    """A Hanzi string that fits in 2 plain-wrapped lines can need 3+ lines
-    once Zhuyin annotation widens each character -- the decision must use
-    the same wrapping the final draw will use, or the reserved zone could
-    be too short. Verified numerically before writing this test: at
-    TOP_BAND_FONT_SIZE against PAGE_W, this 33-character caption plain-wraps
-    to 2 lines but Zhuyin-wraps to 3; at 20x the width it collapses to 1
-    Zhuyin-wrapped line."""
-    from src.stages.stage3_assemble import _choose_layout_variant, PAGE_W
-    from reportlab.pdfbase.cidfonts import UnicodeCIDFont
-    from reportlab.pdfbase import pdfmetrics
-
-    pdfmetrics.registerFont(UnicodeCIDFont("STSong-Light"))
-    caption = "陶樂蒂的開學日今天真是漂亮的一天大家都很開心呢" + "啊" * 10
-
-    en_result = _choose_layout_variant([caption], "STSong-Light", PAGE_W, language="en")
-    zh_result = _choose_layout_variant([caption], "STSong-Light", PAGE_W, language="zh-tw")
-    zh_wide_result = _choose_layout_variant(
-        [caption], "STSong-Light", PAGE_W * 20, language="zh-tw"
-    )
-
-    assert en_result == "bottom_caption"
-    assert zh_result == "top_band"
-    assert zh_wide_result == "bottom_caption"
-
-
-def test_text_zone_height_larger_for_zhuyin_than_plain_at_same_width():
-    from src.stages.stage3_assemble import _text_zone_height, TOP_BAND_FONT_SIZE, PAGE_W
-    from reportlab.pdfbase.cidfonts import UnicodeCIDFont
-    from reportlab.pdfbase import pdfmetrics
-
-    pdfmetrics.registerFont(UnicodeCIDFont("STSong-Light"))
-    caption = "陶樂蒂的開學日今天真是漂亮的一天大家都很開心呢" + "啊" * 10
-
-    plain_h = _text_zone_height(
-        [caption], "STSong-Light", TOP_BAND_FONT_SIZE, PAGE_W, language="en"
-    )
-    zhuyin_h = _text_zone_height(
-        [caption], "STSong-Light", TOP_BAND_FONT_SIZE, PAGE_W, language="zh-tw"
-    )
-
-    assert zhuyin_h > plain_h
 
 
 def test_build_picture_book_pdf_zh_tw_creates_file(tmp_path, tmp_images):
@@ -290,3 +225,107 @@ def test_build_picture_book_pdf_default_language_unaffected(tmp_path, tmp_images
     assert [p.extract_text() for p in reader_no_lang.pages] == [
         p.extract_text() for p in reader_en.pages
     ]
+
+
+def test_cover_fit_image_fills_entire_page(tmp_path, tmp_images):
+    """Unlike contain-fit, cover-fit must never leave visible page margin --
+    the drawn image must be at least as large as the page in both dimensions."""
+    from PIL import Image
+    from reportlab.pdfgen import canvas as canvas_module
+
+    from src.stages.stage3_assemble import PAGE_H, PAGE_W, _cover_fit_image
+
+    calls = []
+    c = canvas_module.Canvas(str(tmp_path / "cover.pdf"))
+    original_draw_image = c.drawImage
+
+    def _recording_draw_image(image, x, y, width, height, **kwargs):
+        calls.append((x, y, width, height))
+        return original_draw_image(image, x, y, width=width, height=height, **kwargs)
+
+    c.drawImage = _recording_draw_image
+    image = Image.open(tmp_images[0]).convert("RGB")
+    _cover_fit_image(c, image, PAGE_W, PAGE_H)
+
+    x, y, width, height = calls[0]
+    assert width >= PAGE_W - 0.01
+    assert height >= PAGE_H - 0.01
+
+
+def test_draw_caption_overlay_draws_plain_text_for_low_variance_candidate():
+    from reportlab.pdfgen import canvas as canvas_module
+
+    from src.stages.stage3_assemble import _draw_caption_overlay, PAGE_H, PAGE_W, _resolve_cjk_font
+    from src.stages.text_placement import Candidate
+
+    font = _resolve_cjk_font()
+    candidate = Candidate(
+        x=0.1, y=0.1, w=0.5, h=0.2, font_size=20.0, badness=0.1, variance=0.05,
+        brightness=230.0, requires_scrim=False,
+    )
+    calls = []
+    c = canvas_module.Canvas("/dev/null")
+    original_draw_string = c.drawString
+
+    def _recording_draw_string(x, y, text):
+        calls.append(text)
+        return original_draw_string(x, y, text)
+
+    c.drawString = _recording_draw_string
+    _draw_caption_overlay(c, candidate, "Hello there.", font, PAGE_W, PAGE_H)
+
+    assert calls == ["Hello there."]
+
+
+def test_draw_caption_overlay_draws_outline_pass_for_high_variance_no_scrim_candidate():
+    from reportlab.pdfgen import canvas as canvas_module
+
+    from src.stages.stage3_assemble import _draw_caption_overlay, PAGE_H, PAGE_W, _resolve_cjk_font
+    from src.stages.text_placement import Candidate
+
+    font = _resolve_cjk_font()
+    candidate = Candidate(
+        x=0.1, y=0.1, w=0.5, h=0.2, font_size=20.0, badness=0.3, variance=0.5,
+        brightness=230.0, requires_scrim=False,
+    )
+    calls = []
+    c = canvas_module.Canvas("/dev/null")
+    original_draw_string = c.drawString
+
+    def _recording_draw_string(x, y, text):
+        calls.append((x, y, text))
+        return original_draw_string(x, y, text)
+
+    c.drawString = _recording_draw_string
+    _draw_caption_overlay(c, candidate, "Hi.", font, PAGE_W, PAGE_H)
+
+    # outline pass (offset) + main pass (no offset) => same text drawn twice at
+    # different positions
+    matching = [call for call in calls if call[2] == "Hi."]
+    assert len(matching) == 2
+    assert matching[0][:2] != matching[1][:2]
+
+
+def test_draw_caption_overlay_draws_scrim_rect_for_requires_scrim_candidate():
+    from reportlab.pdfgen import canvas as canvas_module
+
+    from src.stages.stage3_assemble import _draw_caption_overlay, PAGE_H, PAGE_W, _resolve_cjk_font
+    from src.stages.text_placement import Candidate
+
+    font = _resolve_cjk_font()
+    candidate = Candidate(
+        x=0.1, y=0.1, w=0.5, h=0.2, font_size=14.0, badness=0.6, variance=0.6,
+        brightness=100.0, requires_scrim=True,
+    )
+    calls = []
+    c = canvas_module.Canvas("/dev/null")
+    original_rect = c.rect
+
+    def _recording_rect(*args, **kwargs):
+        calls.append((args, kwargs))
+        return original_rect(*args, **kwargs)
+
+    c.rect = _recording_rect
+    _draw_caption_overlay(c, candidate, "Hi.", font, PAGE_W, PAGE_H)
+
+    assert len(calls) == 1

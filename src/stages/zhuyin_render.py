@@ -69,6 +69,7 @@ def draw_zhuyin_line(
     y: float,
     w: float,
     align: Literal["left", "center"],
+    fill_color: colors.Color = colors.black,
 ) -> None:
     """Draw one wrapped line, baseline at `y`.
 
@@ -82,7 +83,7 @@ def draw_zhuyin_line(
     total_width = sum(_cell_width(zc, font, font_size) for zc in line)
     cursor_x = x if align == "left" else x + (w - total_width) / 2
 
-    c.setFillColor(colors.black)
+    c.setFillColor(fill_color)
     for zc in line:
         cell_w = _cell_width(zc, font, font_size)
         c.setFont(font, font_size)

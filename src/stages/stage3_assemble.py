@@ -14,7 +14,18 @@ from reportlab.pdfbase.cidfonts import UnicodeCIDFont
 from reportlab.pdfbase.ttfonts import TTFError, TTFont
 from reportlab.pdfgen import canvas
 
+from src.stages.text_placement import (
+    CANDIDATE_PAD_PT,
+    CONTRAST_SAFE_VARIANCE,
+    SCRIM_OPACITY,
+    Candidate,
+    analyze_badness,
+    pick_best,
+    search_candidates,
+    visible_crop_box,
+)
 from src.stages.zhuyin_render import draw_zhuyin_line, wrap_zhuyin
+from src.utils.text_wrap import wrap_to_width
 from src.utils.zhuyin import annotate
 
 logger = logging.getLogger(__name__)
@@ -29,13 +40,6 @@ FONT_SIZE = 12
 HEADER_SIZE = 12
 LINE_HEIGHT = 16
 SECTION_GAP = 0.4 * cm
-
-# --- picture_book layout constants (shared by single-page and spread variants) ---
-TOP_BAND_FONT_SIZE = 24
-BOTTOM_CAPTION_FONT_SIZE = 18
-MAX_LINES_FOR_BOTTOM = 2
-TEXT_ZONE_PAD = 0.6 * cm
-INTER_ZONE_GAP = 0.3 * cm
 
 # --- picture_book_spread geometry: one PDF page per spread (two A4 widths, one A4 height) ---
 SPREAD_PAGE_W = 2 * PAGE_W
@@ -90,87 +94,20 @@ def _resolve_cjk_font(font_path: str | None = None) -> str:
     return _cjk_font_name
 
 
-def _wrap_to_width(text: str, font: str, size: float, max_width: float) -> list[str]:
-    """Wrap text to a pixel width. Breaks on spaces for latin text, per character for CJK."""
-    text = text.strip()
-    if not text:
-        return []
-    if " " in text:
-        units, joiner = text.split(), " "
-    else:
-        units, joiner = list(text), ""
-
-    lines: list[str] = []
-    current = ""
-    for unit in units:
-        trial = f"{current}{joiner}{unit}" if current else unit
-        if not current or pdfmetrics.stringWidth(trial, font, size) <= max_width:
-            current = trial
-        else:
-            lines.append(current)
-            current = unit
-    if current:
-        lines.append(current)
-    return lines
-
-
-def _wrapped_line_count(
-    text: str, font: str, font_size: float, max_width: float, language: str
-) -> int:
-    """Number of lines `text` wraps to, using Zhuyin-aware wrapping for zh-tw
-    (each character is wider once annotated) and plain wrapping otherwise."""
-    if language == "zh-tw":
-        return len(wrap_zhuyin(annotate(text), font, font_size, max_width))
-    return len(_wrap_to_width(text, font, font_size, max_width))
-
-
-def _choose_layout_variant(
-    pages: list[str], font: str, page_width: float, language: str = "en"
-) -> Literal["top_band", "bottom_caption"]:
-    """Decide once per book: top-band for long captions, bottom-caption for short ones.
-
-    Every page's caption is wrapped at `page_width` using the top-band font size as a
-    fixed yardstick, regardless of which variant is ultimately chosen -- this keeps the
-    decision a pure text-length measurement that never depends on the chosen variant.
-    zh-tw captions use Zhuyin-aware wrapping, since each character is wider once
-    annotated and would otherwise be under-measured.
-    """
-    max_width = page_width - 2 * MARGIN
-    for page_text in pages:
-        line_count = _wrapped_line_count(page_text, font, TOP_BAND_FONT_SIZE, max_width, language)
-        if line_count > MAX_LINES_FOR_BOTTOM:
-            return "top_band"
-    return "bottom_caption"
-
-
-def _contain_fit_image(
-    c: canvas.Canvas, img_path: str, x: float, y: float, w: float, h: float
+def _cover_fit_image(
+    c: canvas.Canvas, image: Image.Image, page_w: float, page_h: float
 ) -> None:
-    """Scale the illustration to fit within (w, h) without cropping, centered in the zone."""
-    img = Image.open(img_path).convert("RGB")
-    img_w, img_h = img.size
-    scale = min(w / img_w, h / img_h)
+    """Scale the already-opened illustration to fill the whole page,
+    cropping any excess. Takes a loaded image rather than a path so the
+    caller can reuse the same load for badness analysis -- and derives its
+    geometry from `visible_crop_box`, the same function that analysis uses,
+    so the two can never disagree about what's visible."""
+    img_w, img_h = image.size
+    left, top, right, _ = visible_crop_box(img_w, img_h, page_w, page_h)
+    scale = page_w / (right - left)
     draw_w, draw_h = img_w * scale, img_h * scale
-    draw_x = x + (w - draw_w) / 2
-    draw_y = y + (h - draw_h) / 2
-    c.drawImage(ImageReader(img), draw_x, draw_y, width=draw_w, height=draw_h)
-
-
-def _text_zone_height(
-    pages: list[str], font: str, font_size: float, page_width: float, language: str = "en"
-) -> float:
-    """Height of the text zone, sized to the longest wrapped caption across all pages.
-
-    Computed once per book so every page reserves an identically sized band.
-    zh-tw captions use Zhuyin-aware wrapping (see _wrapped_line_count).
-    """
-    max_width = page_width - 2 * MARGIN
-    line_height = font_size * 1.3
-    max_lines = max(
-        (_wrapped_line_count(p, font, font_size, max_width, language) or 1 for p in pages),
-        default=1,
-    )
-    return 2 * TEXT_ZONE_PAD + max_lines * line_height
+    draw_x, draw_y = -left * scale, -top * scale
+    c.drawImage(ImageReader(image), draw_x, draw_y, width=draw_w, height=draw_h)
 
 
 def _draw_zone_text(
@@ -183,6 +120,8 @@ def _draw_zone_text(
     w: float,
     align: Literal["left", "center"],
     language: str = "en",
+    fill_color: colors.Color = colors.black,
+    offset: tuple[float, float] = (0.0, 0.0),
 ) -> None:
     """Draw wrapped text with its first line's baseline just below `top_y`.
 
@@ -190,17 +129,21 @@ def _draw_zone_text(
     other language uses the plain wrap-and-draw path, unchanged.
     """
     line_height = font_size * 1.3
-    cursor_y = top_y - font_size
+    dx, dy = offset
+    cursor_y = top_y - font_size + dy
+    x = x + dx
 
     if language == "zh-tw":
         zhuyin_lines = wrap_zhuyin(annotate(text), font, font_size, w) or [[]]
         for zhuyin_line in zhuyin_lines:
-            draw_zhuyin_line(c, zhuyin_line, font, font_size, x, cursor_y, w, align)
+            draw_zhuyin_line(
+                c, zhuyin_line, font, font_size, x, cursor_y, w, align, fill_color=fill_color
+            )
             cursor_y -= line_height
         return
 
-    lines = _wrap_to_width(text, font, font_size, w) or [""]
-    c.setFillColor(colors.black)
+    lines = wrap_to_width(text, font, font_size, w) or [""]
+    c.setFillColor(fill_color)
     c.setFont(font, font_size)
     for line in lines:
         if align == "center":
@@ -210,42 +153,57 @@ def _draw_zone_text(
         cursor_y -= line_height
 
 
-def _draw_picture_book_page(
+def _draw_caption_overlay(
     c: canvas.Canvas,
-    img_path: str,
+    candidate: Candidate,
     page_text: str,
     font: str,
-    variant: Literal["top_band", "bottom_caption"],
-    text_h: float,
     page_w: float,
     page_h: float,
     language: str = "en",
 ) -> None:
-    """Draw one page/spread: a text zone (top or bottom) and a contain-fit image
-    filling the rest, with a small gap so text never touches the art."""
-    content_w = page_w - 2 * MARGIN
-    if variant == "top_band":
-        text_top_y = page_h - MARGIN
+    """Draw `page_text` inside `candidate`'s rectangle, directly on the
+    illustration, escalating from plain text to an outline to a translucent
+    scrim only as far as needed for contrast against the artwork."""
+    x = candidate.x * page_w
+    w = candidate.w * page_w
+    top_y = page_h - candidate.y * page_h
+    h = candidate.h * page_h
+
+    # The rectangle search (search_candidates) reserves CANDIDATE_PAD_PT of
+    # padding on every side when it wraps text, so the drawn text must be
+    # inset by the same amount to land inside the space that was measured --
+    # otherwise it renders flush against the detected rectangle's edges.
+    text_x = x + CANDIDATE_PAD_PT
+    text_top_y = top_y - CANDIDATE_PAD_PT
+    text_w = w - 2 * CANDIDATE_PAD_PT
+
+    ink = colors.black if candidate.brightness > 128 else colors.white
+    backdrop = colors.white if ink == colors.black else colors.black
+
+    if candidate.variance <= CONTRAST_SAFE_VARIANCE:
         _draw_zone_text(
-            c, page_text, font, TOP_BAND_FONT_SIZE, MARGIN, text_top_y, content_w, "left", language
+            c, page_text, font, candidate.font_size, text_x, text_top_y, text_w, "left",
+            language, fill_color=ink,
         )
-        image_h = page_h - MARGIN - text_h - INTER_ZONE_GAP - MARGIN
-        _contain_fit_image(c, img_path, MARGIN, MARGIN, content_w, image_h)
-    else:
-        image_y = MARGIN + text_h + INTER_ZONE_GAP
-        image_h = page_h - MARGIN - image_y
-        _contain_fit_image(c, img_path, MARGIN, image_y, content_w, image_h)
-        text_top_y = MARGIN + text_h
+    elif not candidate.requires_scrim:
         _draw_zone_text(
-            c,
-            page_text,
-            font,
-            BOTTOM_CAPTION_FONT_SIZE,
-            MARGIN,
-            text_top_y,
-            content_w,
-            "center",
-            language,
+            c, page_text, font, candidate.font_size, text_x, text_top_y, text_w, "left",
+            language, fill_color=backdrop, offset=(0.6, -0.6),
+        )
+        _draw_zone_text(
+            c, page_text, font, candidate.font_size, text_x, text_top_y, text_w, "left",
+            language, fill_color=ink,
+        )
+    else:
+        c.saveState()
+        c.setFillColor(backdrop)
+        c.setFillAlpha(SCRIM_OPACITY)
+        c.rect(x, top_y - h, w, h, fill=1, stroke=0)
+        c.restoreState()
+        _draw_zone_text(
+            c, page_text, font, candidate.font_size, text_x, text_top_y, text_w, "left",
+            language, fill_color=ink,
         )
 
 
@@ -256,28 +214,33 @@ def build_picture_book_pdf(
     font_path: str | None = None,
     page_size: tuple[float, float] = A4,
     language: str = "en",
+    has_gutter: bool = False,
 ) -> None:
-    """Build a picture-book PDF: image contain-fit into a reserved zone, caption text
-    in a plain-background zone outside the image that never overlaps it. The
-    top-band-vs-bottom-caption choice and the text zone's height are both computed
-    once per book, so every page/spread reserves an identically sized, positioned zone.
-    zh-tw captions are annotated with Zhuyin (see zhuyin_render.py); every other
-    language takes the unchanged plain-text path.
+    """Build a picture-book PDF: each page is a full-bleed illustration with
+    its caption drawn directly on top, in a programmatically detected
+    text-safe region (see text_placement.py) rather than a reserved zone
+    outside the art. A wordless page (empty or whitespace-only caption) skips
+    detection and overlay entirely -- just the full-bleed illustration.
     """
     assert len(illustration_paths) == len(pages), (
         f"Mismatch: {len(illustration_paths)} illustrations vs {len(pages)} pages"
     )
     font = _resolve_cjk_font(font_path)
     page_w, page_h = page_size
-    variant = _choose_layout_variant(pages, font, page_w, language)
-    font_size = TOP_BAND_FONT_SIZE if variant == "top_band" else BOTTOM_CAPTION_FONT_SIZE
-    text_h = _text_zone_height(pages, font, font_size, page_w, language)
 
     c = canvas.Canvas(output_path, pagesize=page_size)
     for img_path, page_text in zip(illustration_paths, pages):
-        _draw_picture_book_page(
-            c, img_path, page_text, font, variant, text_h, page_w, page_h, language
-        )
+        image = Image.open(img_path).convert("RGB")
+        _cover_fit_image(c, image, page_w, page_h)
+
+        if page_text.strip():
+            badness_map = analyze_badness(image, page_w, page_h)
+            candidates = search_candidates(
+                badness_map, page_text, font, language, page_w, page_h, has_gutter=has_gutter
+            )
+            best = pick_best(candidates)
+            _draw_caption_overlay(c, best, page_text, font, page_w, page_h, language)
+
         c.showPage()
     c.save()
 
@@ -291,8 +254,10 @@ def build_spread_pdf(
 ) -> None:
     """Build a picture-book PDF where each page is a double-page spread (one wide
     illustration spanning two A4 widths at one A4 height). Reuses the same
-    top-band/bottom-caption geometry as `build_picture_book_pdf`, re-measured at
-    the spread's doubled width.
+    full-bleed-illustration-plus-detected-overlay pipeline as
+    `build_picture_book_pdf`, just at the spread's doubled page width, with
+    `has_gutter=True` so candidate search avoids the physical binding fold at
+    the page's horizontal midpoint.
     """
     build_picture_book_pdf(
         illustration_paths,
@@ -301,6 +266,7 @@ def build_spread_pdf(
         font_path,
         page_size=(SPREAD_PAGE_W, SPREAD_PAGE_H),
         language=language,
+        has_gutter=True,
     )
 
 
@@ -312,7 +278,7 @@ def _draw_section(c: canvas.Canvas, label: str, text: str, body_font: str, top_y
     y = top_y - LINE_HEIGHT
 
     c.setFont(body_font, FONT_SIZE)
-    for line in _wrap_to_width(text or "(empty)", body_font, FONT_SIZE, PAGE_W - 2 * MARGIN):
+    for line in wrap_to_width(text or "(empty)", body_font, FONT_SIZE, PAGE_W - 2 * MARGIN):
         if y < MARGIN:
             return y
         c.drawString(MARGIN, y, line)

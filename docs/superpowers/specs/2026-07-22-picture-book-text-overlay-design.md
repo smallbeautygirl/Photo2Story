@@ -21,10 +21,13 @@ rather than relying on an illustrator having left one.
 
 ## Scope
 
-- **Replaces** `picture_book` and `picture_book_spread` entirely. Both use
-  the same per-image pipeline — `picture_book_spread` already generates one
-  wide illustration per spread (`SPREAD_IMAGE_SIZE` in `illustrate_fal.py`),
-  so no separate spread-specific logic is needed.
+- **Replaces** `picture_book` and `picture_book_spread` entirely — see
+  [ADR 0001](../adr/0001-detected-text-overlay-replaces-fixed-zone.md) for
+  why this is a replacement, not an additive option. Both use the same
+  per-image pipeline — `picture_book_spread` already generates one wide
+  illustration per spread (`SPREAD_IMAGE_SIZE` in `illustrate_fal.py`), so no
+  separate spread-specific analysis logic is needed, only a gutter
+  constraint on the candidate search (see "Candidate rectangle search").
 - **Unchanged**: `image_top_text_bottom` (`build_pdf`, the legacy layout used
   by ablation configs).
 - **No config schema change.** `page_layout: picture_book` /
@@ -33,6 +36,9 @@ rather than relying on an illustrator having left one.
 - The illustration is now drawn full-bleed, cover-fit (scaled and cropped to
   fill the whole page) instead of contain-fit into a sub-zone, since there is
   no outside zone left to reserve.
+- A **wordless page** (empty or whitespace-only caption) skips analysis and
+  overlay entirely — just the full-bleed illustration, no candidate search,
+  no badness map computed.
 
 ## Architecture
 
@@ -40,15 +46,15 @@ rather than relying on an illustrator having left one.
 Illustration
      │
      ▼
-Image Analysis  →  suitability map (saliency + edges + variance + brightness,
+Image Analysis  →  badness map (saliency + edges + variance + brightness,
                     structured as independent channels so a future
                     foreground mask can be added as one more channel later)
      │
      ▼
 Layout Optimization
-     ├─ rectangle search over the suitability map → 3 shape candidates
+     ├─ rectangle search over the badness map → 3 shape candidates
      ├─ font-fit each candidate (largest size that fits, reject below min)
-     └─ pick candidate maximizing (suitability score + font-size score)
+     └─ pick candidate maximizing ((1 - badness) score + font-size score)
      │
      ▼
 Text Rendering
@@ -61,21 +67,39 @@ optimization phases, kept separate from `stage3_assemble.py`'s PDF-drawing
 concerns:
 
 ```python
-def analyze_suitability(image: Image.Image) -> SuitabilityMap: ...
+def analyze_badness(image: Image.Image, page_width: float, page_height: float) -> BadnessMap: ...
 def search_candidates(
-    suitability: SuitabilityMap, caption: str, font: str, language: str
+    badness_map: BadnessMap, caption: str, font: str, language: str
 ) -> list[Candidate]: ...
 def pick_best(candidates: list[Candidate]) -> Candidate: ...
 ```
 
+`analyze_badness` takes the page dimensions (not just the image) because it
+analyzes only the sub-region of the illustration that `_cover_fit_image`
+will actually display — the illustration and the page rarely share an aspect
+ratio, so cover-fit crops part of it away. Both functions derive their crop
+geometry from the same `visible_crop_box` helper, so a `Candidate`'s x/y/w/h
+are page-fraction coordinates by construction, with no separate remapping
+needed downstream. (Earlier drafts of this design analyzed the raw,
+uncropped illustration and treated the resulting coordinates as page
+fractions directly — correct only when the illustration and page share an
+aspect ratio, which happens to hold for `picture_book_spread` but not for
+single-page `picture_book`. Fixed before this reached the design doc.)
+
 `stage3_assemble.py` calls these three functions per page, then draws the
 image (cover-fit) and the caption at the position/size/color `pick_best`
-returns — it does not know how the region was chosen, matching the existing
-separation where `zhuyin_render.py` doesn't know overlay rendering exists.
+returns. It does not know *why* a region was chosen (badness, preset
+search) — matching the existing separation where `zhuyin_render.py` doesn't
+know overlay rendering exists — but it does need to know `CANDIDATE_PAD_PT`
+to draw the caption inset from the candidate rectangle's edges rather than
+flush against them; the two modules are one stage's cooperating parts, not
+separate bounded contexts, so sharing that one rendering-contract constant
+is an intentional seam, not a leak.
 
-## Image analysis: the suitability map
+## Image analysis: the badness map
 
-The illustration is downsampled to a small analysis grid (long side ~200px —
+The illustration's cover-fit-visible region (see above) is downsampled to a
+small analysis grid (long side ~200px —
 precision beyond a few cells doesn't matter for region search, and it keeps
 every `cv2` op fast regardless of the real 1408×992+ resolution). Per grid
 cell, three channels feed a badness score:
@@ -98,13 +122,15 @@ alone would miss. Mean brightness per cell is tracked separately — it is
 ## Candidate rectangle search
 
 Three fixed shape presets, matching the reference books' paragraph-block vs.
-short-caption shapes:
+short-caption shapes, tracked on each `Candidate` as `preset` so a page's
+chosen shape is inspectable (for logging/debugging), not just its raw
+geometry:
 
 | Preset | Width (fraction of page width) |
 |---|---|
-| narrow-tall | 0.28 |
+| narrow_tall | 0.28 |
 | medium | 0.45 |
-| wide-short | 0.65 |
+| wide_short | 0.65 |
 
 For each preset, independently:
 
@@ -120,9 +146,18 @@ For each preset, independently:
    `FONT_SIZE_MIN`, keep the `FONT_SIZE_MIN` result anyway, flagged
    `requires_scrim=True`.
 
-This produces exactly 3 `Candidate` objects per page
-(`x, y, w, h, font_size, badness, requires_scrim`), each already fitted with
-its own best achievable font size.
+This produces up to 3 `Candidate` objects per page
+(`x, y, w, h, font_size, badness, requires_scrim, preset`), each already
+fitted with its own best achievable font size.
+
+**Spreads and the gutter:** `picture_book_spread` pages have a physical
+binding fold (the gutter) at the page's horizontal midpoint. Width fractions
+are relative to the full spread width, so `wide_short` (0.65) is wider than
+either half (0.5) and can never avoid straddling the fold — it is skipped
+outright for spread pages, leaving up to 2 candidates. `narrow_tall` and
+`medium` fit within a half but aren't guaranteed to land there, so their
+position search additionally excludes any placement that would straddle the
+gutter column.
 
 ## Ranking
 
@@ -133,9 +168,9 @@ combined = 0.6 * (1 - badness)
 ```
 
 `pick_best` returns the candidate with the highest `combined` score.
-Suitability dominates the score; font size breaks ties toward the
+`(1 - badness)` dominates the score; font size breaks ties toward the
 better-reading shape; a scrim requirement is a real but not disqualifying
-penalty (a candidate that needs a scrim can still win if its suitability and
+penalty (a candidate that needs a scrim can still win if its badness and
 font size are clearly better than the alternatives).
 
 ## Text rendering
@@ -169,11 +204,13 @@ is no further fallback step (e.g. "try the next candidate") after the scrim
   `MAX_LINES_FOR_BOTTOM`, `TEXT_ZONE_PAD`, `INTER_ZONE_GAP` are removed —
   they encoded the one-fixed-zone-per-book model this replaces.
   `_contain_fit_image` is replaced by a cover-fit equivalent for the
-  full-bleed image. `_wrap_to_width` and `wrap_zhuyin` are unchanged and
-  reused by the candidate search.
+  full-bleed image, sharing `visible_crop_box`'s geometry with
+  `analyze_badness` (see "Architecture"). `_wrap_to_width` and `wrap_zhuyin`
+  are unchanged and reused by the candidate search.
 - **New constants**, in `src/stages/text_placement.py`:
   `FONT_SIZE_MIN = 14`, `FONT_SIZE_MAX = 26`, `FONT_SIZE_STEP = 2`,
   `SAFE_THRESHOLD = 0.35`, `SCRIM_OPACITY = 0.55`,
+  `SHAPE_PRESET_NAMES = ("narrow_tall", "medium", "wide_short")`,
   `SHAPE_PRESET_WIDTHS = (0.28, 0.45, 0.65)`, the badness weights
   `(0.5, 0.3, 0.2)`, the ranking weights `(0.6, 0.4, 0.25)`, and the
   analysis-grid target size (~200px long side).
@@ -185,15 +222,27 @@ is no further fallback step (e.g. "try the next candidate") after the scrim
 Pure image-processing logic, fully offline and deterministic — no external
 APIs, no GPU, so none of the existing mocking patterns are needed here:
 
-- `test_analyze_suitability_scores_flat_region_low_and_textured_region_high`
+- `test_analyze_badness_scores_flat_region_low_and_textured_region_high`
   — synthetic image with a plain block and a noisy/checkerboard block;
   assert the plain block's badness is lower.
-- `test_search_candidates_prefers_larger_font_when_suitability_ties` — two
-  equally-clean regions of different size; assert the returned candidate
-  list favors the larger one's font size.
+- `test_analyze_badness_only_covers_the_cover_fit_visible_region` — an image
+  whose aspect ratio doesn't match the page's; assert the returned map's
+  aspect ratio matches the page, not the raw image (i.e. the cropped-away
+  margin never influences the badness map).
+- `test_search_candidates_returns_one_per_shape_preset_with_matching_preset_field`
+  — assert each returned `Candidate.preset` matches the preset that produced
+  it, in `SHAPE_PRESET_NAMES` order.
+- `test_search_candidates_narrower_preset_gets_smaller_or_equal_font_for_long_caption`
+  — a narrower preset must never end up with a larger font than a wider one
+  for the same caption.
 - `test_search_candidates_flags_requires_scrim_when_nothing_clears_threshold`
   — an entirely noisy synthetic image; assert every candidate comes back
   flagged `requires_scrim=True`.
+- `test_mask_gutter_straddling_sets_straddling_positions_to_inf` — direct
+  unit test of the exclusion helper against a small synthetic `sums` array.
+- `test_search_candidates_skips_wide_short_preset_when_has_gutter` —
+  `has_gutter=True`; assert no returned candidate is `wide_short` and only 2
+  candidates come back.
 - `test_pick_best_selects_highest_combined_score` — hand-constructed
   `Candidate` objects (no image needed); assert the ranking formula picks
   the expected one.
@@ -211,8 +260,9 @@ APIs, no GPU, so none of the existing mocking patterns are needed here:
 ## Out of scope
 
 - Semantic foreground segmentation (SAM2/GroundingDINO or a hosted
-  equivalent) — the suitability-map channel list is structured to accept it
-  later as one more channel; nothing is built now.
+  equivalent) — the badness-map channel list is structured to accept it
+  later as one more channel; nothing is built now. See
+  [ADR 0002](../adr/0002-heuristic-badness-scoring-over-segmentation.md).
 - `image_top_text_bottom` (legacy `build_pdf`) — untouched.
 - Page size/orientation — stays A4 portrait / doubled-width spread.
 - Any `configs/*.yaml` schema change.
