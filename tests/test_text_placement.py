@@ -184,6 +184,58 @@ def test_pick_best_selects_highest_combined_score():
     assert best is slightly_busier_large_font
 
 
+def test_pick_best_penalizes_scrim_requirement():
+    """Two candidates identical in every scoring input except `requires_scrim`
+    must have the non-scrim one win. This pins the penalty's *sign*: a
+    formula that omits the penalty, or applies it as a bonus, would instead
+    tie the two candidates (omitted) or pick the scrim one (bonus) -- both
+    of which fail this assertion.
+    """
+    from src.stages.text_placement import Candidate, pick_best
+
+    without_scrim = Candidate(
+        x=0.1, y=0.1, w=0.3, h=0.1, font_size=20.0, badness=0.3, variance=0.3,
+        brightness=200.0, requires_scrim=False,
+    )
+    with_scrim = Candidate(
+        x=0.1, y=0.1, w=0.3, h=0.1, font_size=20.0, badness=0.3, variance=0.3,
+        brightness=200.0, requires_scrim=True,
+    )
+
+    best = pick_best([with_scrim, without_scrim])
+
+    assert best is without_scrim
+
+
+def test_pick_best_weighs_suitability_above_font_size():
+    """Constructed so the correct weighting (0.6 suitability, 0.4 font size)
+    and a swapped weighting (0.4 suitability, 0.6 font size) disagree on the
+    winner -- catching a formula that swaps `RANK_SUITABILITY_WEIGHT` and
+    `RANK_FONT_WEIGHT`.
+
+    high_suitability_small_font: badness=0.0 (suitability term 1.0), font_size
+    at FONT_SIZE_MIN (font_ratio 0.0) -> correct score 0.6, swapped score 0.4.
+    low_suitability_large_font: badness=1.0 (suitability term 0.0), font_size
+    at FONT_SIZE_MAX (font_ratio 1.0) -> correct score 0.4, swapped score 0.6.
+    The correct formula must pick the first; a swapped-weight formula would
+    pick the second instead.
+    """
+    from src.stages.text_placement import Candidate, pick_best
+
+    high_suitability_small_font = Candidate(
+        x=0.1, y=0.1, w=0.3, h=0.1, font_size=14.0, badness=0.0, variance=0.1,
+        brightness=200.0, requires_scrim=False,
+    )
+    low_suitability_large_font = Candidate(
+        x=0.1, y=0.1, w=0.3, h=0.1, font_size=26.0, badness=1.0, variance=0.1,
+        brightness=200.0, requires_scrim=False,
+    )
+
+    best = pick_best([high_suitability_small_font, low_suitability_large_font])
+
+    assert best is high_suitability_small_font
+
+
 def test_pick_best_raises_on_empty_list():
     from src.stages.text_placement import pick_best
 

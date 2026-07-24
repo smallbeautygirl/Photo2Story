@@ -15,6 +15,7 @@ from reportlab.pdfbase.ttfonts import TTFError, TTFont
 from reportlab.pdfgen import canvas
 
 from src.stages.text_placement import (
+    CANDIDATE_PAD_PT,
     CONTRAST_SAFE_VARIANCE,
     SCRIM_OPACITY,
     Candidate,
@@ -166,20 +167,30 @@ def _draw_caption_overlay(
     top_y = page_h - candidate.y * page_h
     h = candidate.h * page_h
 
+    # The rectangle search (search_candidates) reserves CANDIDATE_PAD_PT of
+    # padding on every side when it wraps text, so the drawn text must be
+    # inset by the same amount to land inside the space that was measured --
+    # otherwise it renders flush against the detected rectangle's edges.
+    text_x = x + CANDIDATE_PAD_PT
+    text_top_y = top_y - CANDIDATE_PAD_PT
+    text_w = w - 2 * CANDIDATE_PAD_PT
+
     ink = colors.black if candidate.brightness > 128 else colors.white
     backdrop = colors.white if ink == colors.black else colors.black
 
     if candidate.variance <= CONTRAST_SAFE_VARIANCE:
         _draw_zone_text(
-            c, page_text, font, candidate.font_size, x, top_y, w, "left", language, fill_color=ink
+            c, page_text, font, candidate.font_size, text_x, text_top_y, text_w, "left",
+            language, fill_color=ink,
         )
     elif not candidate.requires_scrim:
         _draw_zone_text(
-            c, page_text, font, candidate.font_size, x, top_y, w, "left", language,
-            fill_color=backdrop, offset=(0.6, -0.6),
+            c, page_text, font, candidate.font_size, text_x, text_top_y, text_w, "left",
+            language, fill_color=backdrop, offset=(0.6, -0.6),
         )
         _draw_zone_text(
-            c, page_text, font, candidate.font_size, x, top_y, w, "left", language, fill_color=ink
+            c, page_text, font, candidate.font_size, text_x, text_top_y, text_w, "left",
+            language, fill_color=ink,
         )
     else:
         c.saveState()
@@ -188,7 +199,8 @@ def _draw_caption_overlay(
         c.rect(x, top_y - h, w, h, fill=1, stroke=0)
         c.restoreState()
         _draw_zone_text(
-            c, page_text, font, candidate.font_size, x, top_y, w, "left", language, fill_color=ink
+            c, page_text, font, candidate.font_size, text_x, text_top_y, text_w, "left",
+            language, fill_color=ink,
         )
 
 
@@ -233,8 +245,9 @@ def build_spread_pdf(
 ) -> None:
     """Build a picture-book PDF where each page is a double-page spread (one wide
     illustration spanning two A4 widths at one A4 height). Reuses the same
-    top-band/bottom-caption geometry as `build_picture_book_pdf`, re-measured at
-    the spread's doubled width.
+    full-bleed-illustration-plus-detected-overlay pipeline as
+    `build_picture_book_pdf`, just at the spread's doubled page width -- so the
+    suitability analysis and candidate search run against the wider page.
     """
     build_picture_book_pdf(
         illustration_paths,
