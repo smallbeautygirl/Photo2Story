@@ -66,9 +66,10 @@ class BadnessMap:
 
 @dataclass(frozen=True)
 class Candidate:
-    """One candidate text placement. x/y/w/h are fractions of the page's
-    width/height (x, w relative to width; y, h relative to height), with y
-    measured from the top of the page."""
+    """One candidate text placement. x/y/w/h are fractions of the final
+    rendered page (x, w relative to width; y, h relative to height, measured
+    from the top) -- i.e. of the illustration after its cover-fit crop, not
+    of the raw illustration file."""
 
     x: float
     y: float
@@ -104,9 +105,31 @@ def _rect_sums_for_size(integral: np.ndarray, rect_h: int, rect_w: int) -> np.nd
     return a - b - c + d
 
 
-def analyze_badness(image: Image.Image) -> BadnessMap:
-    """Downsample `image` and compute its per-pixel text-safety badness."""
-    rgb = image.convert("RGB")
+def visible_crop_box(
+    image_width: float, image_height: float, page_width: float, page_height: float
+) -> tuple[float, float, float, float]:
+    """The (left, top, right, bottom) region of an image, in the image's own
+    pixel coordinates, that remains visible after a cover-fit scale-and-crop
+    onto a page_width x page_height page. The single source of truth for
+    that geometry -- shared by `analyze_badness` (so its badness map only
+    covers what will actually be shown) and `stage3_assemble._cover_fit_image`
+    (so drawing and analysis can never disagree about what's visible)."""
+    scale = max(page_width / image_width, page_height / image_height)
+    draw_w, draw_h = image_width * scale, image_height * scale
+    draw_x, draw_y = (page_width - draw_w) / 2, (page_height - draw_h) / 2
+    left, top = -draw_x / scale, -draw_y / scale
+    return left, top, left + page_width / scale, top + page_height / scale
+
+
+def analyze_badness(image: Image.Image, page_width: float, page_height: float) -> BadnessMap:
+    """Downsample the cover-fit-visible region of `image` -- the sub-rectangle
+    that will actually be shown on a page_width x page_height page -- and
+    compute its per-pixel text-safety badness. Candidates derived from the
+    result are therefore already in page-fraction coordinates."""
+    left, top, right, bottom = visible_crop_box(image.width, image.height, page_width, page_height)
+    visible = image.crop((round(left), round(top), round(right), round(bottom)))
+
+    rgb = visible.convert("RGB")
     long_side = max(rgb.size)
     scale = ANALYSIS_LONG_SIDE / long_side
     small = rgb.resize((max(1, round(rgb.width * scale)), max(1, round(rgb.height * scale))))

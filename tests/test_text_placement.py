@@ -41,7 +41,7 @@ def test_analyze_badness_scores_flat_region_low_and_textured_region_high():
     arr[:, half:, 2] = checker
     image = Image.fromarray(arr, mode="RGB")
 
-    badness_map = analyze_badness(image)
+    badness_map = analyze_badness(image, page_width=200.0, page_height=200.0)
     grid_h, grid_w = badness_map.badness.shape
     flat_region = badness_map.badness[:, : grid_w // 4]
     textured_region = badness_map.badness[:, 3 * grid_w // 4 :]
@@ -57,8 +57,8 @@ def test_analyze_badness_brightness_matches_grayscale_level():
     dark = Image.fromarray(np.full((100, 100, 3), 20, dtype=np.uint8), mode="RGB")
     light = Image.fromarray(np.full((100, 100, 3), 235, dtype=np.uint8), mode="RGB")
 
-    assert analyze_badness(dark).brightness.mean() < 60
-    assert analyze_badness(light).brightness.mean() > 200
+    assert analyze_badness(dark, page_width=100.0, page_height=100.0).brightness.mean() < 60
+    assert analyze_badness(light, page_width=100.0, page_height=100.0).brightness.mean() > 200
 
 
 def test_analyze_badness_saliency_weight_drives_most_of_the_badness_gap(monkeypatch):
@@ -80,7 +80,7 @@ def test_analyze_badness_saliency_weight_drives_most_of_the_badness_gap(monkeypa
     image = Image.fromarray(arr, mode="RGB")
 
     # Measure badness gap with full weights
-    full = text_placement.analyze_badness(image)
+    full = text_placement.analyze_badness(image, page_width=200.0, page_height=200.0)
     grid_h, grid_w = full.badness.shape
     left_mean = full.badness[:, : grid_w // 2].mean()
     right_mean = full.badness[:, grid_w // 2 :].mean()
@@ -88,7 +88,7 @@ def test_analyze_badness_saliency_weight_drives_most_of_the_badness_gap(monkeypa
 
     # Measure badness gap with saliency zeroed
     monkeypatch.setattr(text_placement, "BADNESS_WEIGHTS", (0.0, 0.3, 0.2))
-    no_saliency = text_placement.analyze_badness(image)
+    no_saliency = text_placement.analyze_badness(image, page_width=200.0, page_height=200.0)
     no_sal_left_mean = no_saliency.badness[:, : grid_w // 2].mean()
     no_sal_right_mean = no_saliency.badness[:, grid_w // 2 :].mean()
     no_saliency_gap = no_sal_right_mean - no_sal_left_mean
@@ -97,11 +97,34 @@ def test_analyze_badness_saliency_weight_drives_most_of_the_badness_gap(monkeypa
     assert no_saliency_gap < full_gap * 0.5
 
 
+def test_analyze_badness_only_covers_the_cover_fit_visible_region():
+    """A wide illustration on a square page has its left and right margins
+    cropped away by cover-fit. If analysis ran on the raw, uncropped image,
+    noisy margins would pull the average badness up; analysis must instead
+    only see the plain center strip that will actually be shown."""
+    from src.stages.text_placement import analyze_badness
+
+    width, height = 400, 100
+    rng = np.random.default_rng(0)
+    arr = np.full((height, width, 3), 230, dtype=np.uint8)
+    noisy = (rng.integers(0, 2, size=(height, 150)) * 255).astype(np.uint8)
+    for channel in range(3):
+        arr[:, :150, channel] = noisy
+        arr[:, 250:, channel] = noisy
+    image = Image.fromarray(arr, mode="RGB")
+
+    # Cover-fit onto a 100x100 page only shows image columns [150, 250) --
+    # the plain center -- cropping away both noisy margins entirely.
+    badness_map = analyze_badness(image, page_width=100.0, page_height=100.0)
+
+    assert badness_map.badness.mean() < 0.1
+
+
 def test_search_candidates_returns_one_per_shape_preset():
     from src.stages.text_placement import SHAPE_PRESET_WIDTHS, analyze_badness, search_candidates
 
     image = Image.fromarray(np.full((200, 200, 3), 230, dtype=np.uint8), mode="RGB")
-    badness_map = analyze_badness(image)
+    badness_map = analyze_badness(image, page_width=400.0, page_height=400.0)
 
     candidates = search_candidates(
         badness_map, "A short caption.", "Helvetica", "en", 400.0, 400.0
@@ -154,7 +177,7 @@ def test_search_candidates_flags_requires_scrim_when_nothing_clears_threshold():
     rng = np.random.default_rng(0)
     arr = (rng.integers(0, 2, size=(200, 200, 3)) * 255).astype(np.uint8)
     image = Image.fromarray(arr, mode="RGB")
-    badness_map = analyze_badness(image)
+    badness_map = analyze_badness(image, page_width=400.0, page_height=400.0)
 
     candidates = search_candidates(
         badness_map, "A caption that needs placement.", "Helvetica", "en", 400.0, 400.0

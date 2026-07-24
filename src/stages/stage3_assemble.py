@@ -22,6 +22,7 @@ from src.stages.text_placement import (
     analyze_badness,
     pick_best,
     search_candidates,
+    visible_crop_box,
 )
 from src.stages.zhuyin_render import draw_zhuyin_line, wrap_zhuyin
 from src.utils.text_wrap import wrap_to_width
@@ -98,12 +99,14 @@ def _cover_fit_image(
 ) -> None:
     """Scale the already-opened illustration to fill the whole page,
     cropping any excess. Takes a loaded image rather than a path so the
-    caller can reuse the same load for badness analysis."""
+    caller can reuse the same load for badness analysis -- and derives its
+    geometry from `visible_crop_box`, the same function that analysis uses,
+    so the two can never disagree about what's visible."""
     img_w, img_h = image.size
-    scale = max(page_w / img_w, page_h / img_h)
+    left, top, right, _ = visible_crop_box(img_w, img_h, page_w, page_h)
+    scale = page_w / (right - left)
     draw_w, draw_h = img_w * scale, img_h * scale
-    draw_x = (page_w - draw_w) / 2
-    draw_y = (page_h - draw_h) / 2
+    draw_x, draw_y = -left * scale, -top * scale
     c.drawImage(ImageReader(image), draw_x, draw_y, width=draw_w, height=draw_h)
 
 
@@ -226,7 +229,7 @@ def build_picture_book_pdf(
     c = canvas.Canvas(output_path, pagesize=page_size)
     for img_path, page_text in zip(illustration_paths, pages):
         image = Image.open(img_path).convert("RGB")
-        badness_map = analyze_badness(image)
+        badness_map = analyze_badness(image, page_w, page_h)
         candidates = search_candidates(badness_map, page_text, font, language, page_w, page_h)
         best = pick_best(candidates)
 

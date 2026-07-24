@@ -61,12 +61,24 @@ optimization phases, kept separate from `stage3_assemble.py`'s PDF-drawing
 concerns:
 
 ```python
-def analyze_badness(image: Image.Image) -> BadnessMap: ...
+def analyze_badness(image: Image.Image, page_width: float, page_height: float) -> BadnessMap: ...
 def search_candidates(
     badness_map: BadnessMap, caption: str, font: str, language: str
 ) -> list[Candidate]: ...
 def pick_best(candidates: list[Candidate]) -> Candidate: ...
 ```
+
+`analyze_badness` takes the page dimensions (not just the image) because it
+analyzes only the sub-region of the illustration that `_cover_fit_image`
+will actually display — the illustration and the page rarely share an aspect
+ratio, so cover-fit crops part of it away. Both functions derive their crop
+geometry from the same `visible_crop_box` helper, so a `Candidate`'s x/y/w/h
+are page-fraction coordinates by construction, with no separate remapping
+needed downstream. (Earlier drafts of this design analyzed the raw,
+uncropped illustration and treated the resulting coordinates as page
+fractions directly — correct only when the illustration and page share an
+aspect ratio, which happens to hold for `picture_book_spread` but not for
+single-page `picture_book`. Fixed before this reached the design doc.)
 
 `stage3_assemble.py` calls these three functions per page, then draws the
 image (cover-fit) and the caption at the position/size/color `pick_best`
@@ -80,7 +92,8 @@ is an intentional seam, not a leak.
 
 ## Image analysis: the badness map
 
-The illustration is downsampled to a small analysis grid (long side ~200px —
+The illustration's cover-fit-visible region (see above) is downsampled to a
+small analysis grid (long side ~200px —
 precision beyond a few cells doesn't matter for region search, and it keeps
 every `cv2` op fast regardless of the real 1408×992+ resolution). Per grid
 cell, three channels feed a badness score:
@@ -174,8 +187,9 @@ is no further fallback step (e.g. "try the next candidate") after the scrim
   `MAX_LINES_FOR_BOTTOM`, `TEXT_ZONE_PAD`, `INTER_ZONE_GAP` are removed —
   they encoded the one-fixed-zone-per-book model this replaces.
   `_contain_fit_image` is replaced by a cover-fit equivalent for the
-  full-bleed image. `_wrap_to_width` and `wrap_zhuyin` are unchanged and
-  reused by the candidate search.
+  full-bleed image, sharing `visible_crop_box`'s geometry with
+  `analyze_badness` (see "Architecture"). `_wrap_to_width` and `wrap_zhuyin`
+  are unchanged and reused by the candidate search.
 - **New constants**, in `src/stages/text_placement.py`:
   `FONT_SIZE_MIN = 14`, `FONT_SIZE_MAX = 26`, `FONT_SIZE_STEP = 2`,
   `SAFE_THRESHOLD = 0.35`, `SCRIM_OPACITY = 0.55`,
@@ -193,6 +207,10 @@ APIs, no GPU, so none of the existing mocking patterns are needed here:
 - `test_analyze_badness_scores_flat_region_low_and_textured_region_high`
   — synthetic image with a plain block and a noisy/checkerboard block;
   assert the plain block's badness is lower.
+- `test_analyze_badness_only_covers_the_cover_fit_visible_region` — an image
+  whose aspect ratio doesn't match the page's; assert the returned map's
+  aspect ratio matches the page, not the raw image (i.e. the cropped-away
+  margin never influences the badness map).
 - `test_search_candidates_narrower_preset_gets_smaller_or_equal_font_for_long_caption`
   — a narrower preset must never end up with a larger font than a wider one
   for the same caption.
