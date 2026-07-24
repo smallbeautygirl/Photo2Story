@@ -21,10 +21,12 @@ rather than relying on an illustrator having left one.
 
 ## Scope
 
-- **Replaces** `picture_book` and `picture_book_spread` entirely. Both use
-  the same per-image pipeline — `picture_book_spread` already generates one
-  wide illustration per spread (`SPREAD_IMAGE_SIZE` in `illustrate_fal.py`),
-  so no separate spread-specific analysis logic is needed, only a gutter
+- **Replaces** `picture_book` and `picture_book_spread` entirely — see
+  [ADR 0001](../adr/0001-detected-text-overlay-replaces-fixed-zone.md) for
+  why this is a replacement, not an additive option. Both use the same
+  per-image pipeline — `picture_book_spread` already generates one wide
+  illustration per spread (`SPREAD_IMAGE_SIZE` in `illustrate_fal.py`), so no
+  separate spread-specific analysis logic is needed, only a gutter
   constraint on the candidate search (see "Candidate rectangle search").
 - **Unchanged**: `image_top_text_bottom` (`build_pdf`, the legacy layout used
   by ablation configs).
@@ -259,7 +261,8 @@ APIs, no GPU, so none of the existing mocking patterns are needed here:
 
 - Semantic foreground segmentation (SAM2/GroundingDINO or a hosted
   equivalent) — the badness-map channel list is structured to accept it
-  later as one more channel; nothing is built now.
+  later as one more channel; nothing is built now. See
+  [ADR 0002](../adr/0002-heuristic-badness-scoring-over-segmentation.md).
 - `image_top_text_bottom` (legacy `build_pdf`) — untouched.
 - Page size/orientation — stays A4 portrait / doubled-width spread.
 - Any `configs/*.yaml` schema change.
