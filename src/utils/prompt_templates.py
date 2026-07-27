@@ -50,7 +50,7 @@ READING_LEVELS = {
     "simple": {
         "age": "ages 3 to 5",
         "sentences": "exactly one short sentence",
-        "length_hint": "at most ~18 characters for Chinese/Japanese, or ~12 words for English",
+        "length_hint": "at most ~24 characters for Chinese/Japanese, or ~12 words for English",
         "vocab": (
             "Use only the most common everyday words a preschooler already knows. "
             "No idioms, no rare or abstract words, no subordinate clauses."
@@ -78,6 +78,7 @@ Rules:
 - Write exactly {k} pages
 - Each page: {sentences} ({length_hint})
 - {vocab}
+- Every sentence must be grammatically complete and natural in the target language -- do not drop prepositions, particles, or verb-complement markers just to shorten a sentence (e.g. Chinese needs 在/著/地 where a natural sentence would use them, not a telegraphic string of nouns)
 - Pages must connect naturally: use techniques like a recurring character or object reappearing, a consequence following from the previous page's event, or the same setting carrying across pages -- vary which technique you use rather than repeating one every page
 - Warm, child-friendly tone
 - All page text must be written in language "{language}" (BCP 47)

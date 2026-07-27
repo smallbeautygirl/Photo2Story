@@ -143,6 +143,30 @@ def test_generate_story_prompt_mentions_continuity_techniques(mocker):
     assert "consequence" in prompt
 
 
+def test_generate_story_prompt_requires_grammatical_completeness(mocker):
+    """Guards against telegraphic output (e.g. dropping 在/著/地 in Chinese)
+    at any reading level, not just "simple" -- confirmed against a real
+    generated page ("日本街頭走，開心一整天。") that read as a noun-string
+    rather than a sentence."""
+    mock_generate = mocker.patch(
+        "src.stages.stage1_story.generate_text",
+        return_value='["A."]',
+    )
+
+    generate_story(
+        descriptions={"p1.jpg": "a"},
+        narrative="arc",
+        context="ctx",
+        style="ghibli",
+        language="zh-tw",
+        model_name="gemini-2.5-flash",
+        reading_level="simple",
+    )
+
+    prompt = mock_generate.call_args[0][0]
+    assert "grammatically complete" in prompt
+
+
 def test_run_stage1_returns_language_used(mocker):
     stage0_result = {
         "ordered_paths": ["p1.jpg", "p2.jpg"],
