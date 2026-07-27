@@ -74,10 +74,10 @@ def draw_zhuyin_line(
     """Draw one wrapped line, baseline at `y`.
 
     Each character is followed by its stacked main Bopomofo letters (small
-    font, top-aligned within the character's height) and its tone mark
-    positioned beside the *last* letter of the stack -- not a fixed height
-    within the character cell, so it stays visually attached to the stack
-    regardless of how many letters it has: 2nd tone (ˊ) just above the last
+    font, *centered* on the character's vertical middle -- not pinned to a
+    fixed top, so a short stack still spans the character's height instead
+    of only ever occupying its upper portion) and its tone mark positioned
+    beside the *last* letter of the stack: 2nd tone (ˊ) just above the last
     letter, 3rd tone (ˇ) level with it, 4th tone (ˋ) just below it. Neutral
     tone (˙) is the exception, drawn above the first (topmost) letter. 1st
     tone (no mark) is drawn nowhere.
@@ -96,7 +96,15 @@ def draw_zhuyin_line(
         if zc.main or zc.tone_mark:
             c.setFont(font, zy_size)
             letter_x = cursor_x + char_w + 1.5
-            letter_y = y + font_size - zy_size
+            # Center the stack on the character's vertical middle: a stack of
+            # N letters spans (N-1) * zy_size * 1.05, so starting half that
+            # span above the middle (and working downward) keeps the stack
+            # centered regardless of N, instead of always starting at a fixed
+            # top -- which left short stacks stranded in the character's
+            # upper portion, never reaching its lower half.
+            stack_span = max(len(zc.main) - 1, 0) * zy_size * 1.05
+            letter_y = y + (font_size - zy_size) / 2 + stack_span / 2
+            first_letter_y = letter_y
             last_letter_y = letter_y
             for letter in zc.main:
                 c.drawString(letter_x, letter_y, letter)
@@ -111,7 +119,7 @@ def draw_zhuyin_line(
                     # Above the first (topmost) letter -- not beside the stack like the
                     # other tone marks, per this feature's confirmed layout design.
                     tone_x = letter_x
-                    tone_y = y + font_size - zy_size + zy_size * 1.05
+                    tone_y = first_letter_y + zy_size * 1.05
                 else:
                     tone_x = letter_x + main_w + 0.5
                     # Anchored to the *last* main letter's row, not the character

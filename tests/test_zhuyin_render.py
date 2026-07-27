@@ -161,6 +161,52 @@ def test_draw_zhuyin_line_tone_mark_tracks_last_letter_not_fixed_cell_height():
     assert tone_ys[1] < tone_ys[0]
 
 
+def test_draw_zhuyin_line_single_letter_stack_centers_on_character_middle():
+    """Regression test: a single-letter stack must be centered on the
+    character's vertical middle, not pinned to the same fixed top used for
+    longer stacks -- otherwise a short stack is stranded near the top of the
+    character's height, never reaching its lower half."""
+    from reportlab.pdfbase.cidfonts import UnicodeCIDFont
+    from reportlab.pdfbase import pdfmetrics
+
+    from src.stages.zhuyin_render import _zhuyin_font_size, draw_zhuyin_line
+    from src.utils.zhuyin import ZhuyinChar
+
+    pdfmetrics.registerFont(UnicodeCIDFont("STSong-Light"))
+
+    calls = []
+
+    class _RecordingCanvas:
+        def __init__(self, real):
+            self._real = real
+
+        def setFillColor(self, *a, **kw):
+            self._real.setFillColor(*a, **kw)
+
+        def setFont(self, *a, **kw):
+            self._real.setFont(*a, **kw)
+
+        def drawString(self, x, y, text):
+            calls.append((x, y, text))
+            self._real.drawString(x, y, text)
+
+    from reportlab.pdfgen import canvas as canvas_module
+
+    real_canvas = canvas_module.Canvas("/dev/null")
+    wrapped = _RecordingCanvas(real_canvas)
+
+    font_size = 24
+    y = 700
+    zchars = [ZhuyinChar(char="魚", main="ㄩ", tone_mark="ˊ")]
+    draw_zhuyin_line(wrapped, zchars, "STSong-Light", font_size, x=50, y=y, w=400, align="left")
+
+    zy_size = _zhuyin_font_size(font_size)
+    letter_y = next(letter_y for _, letter_y, text in calls if text == "ㄩ")
+    expected_center = y + (font_size - zy_size) / 2
+
+    assert letter_y == expected_center
+
+
 def test_draw_zhuyin_line_uses_given_fill_color():
     from reportlab.lib import colors
     from reportlab.pdfbase.cidfonts import UnicodeCIDFont
