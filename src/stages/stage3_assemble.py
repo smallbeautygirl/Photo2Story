@@ -46,26 +46,46 @@ SPREAD_PAGE_W = 2 * PAGE_W
 SPREAD_PAGE_H = PAGE_H
 
 # ReportLab's TTFont only embeds TrueType (glyf) outlines, so Noto Sans CJK's
-# CFF .ttc files fail to load. AR PL UMing TW is a glyf-based CJK font that works.
-# (name, path, subfontIndex) — first that registers wins; an explicit path is tried first.
+# CFF .ttc files fail to load. jf-openhuninn is a glyf-based sans-serif CJK
+# font bundled with the project -- the one fixed typeface for every zh-tw
+# render, chosen deliberately rather than matched to illustration style; see
+# docs/adr/0003-fixed-font-across-pipeline.md.
+# (name, path) -- first that registers wins; an explicit path is tried first.
 _CJK_FONT_CANDIDATES = [
-    ("AR PL UMing TW", "/usr/share/fonts/truetype/arphic/uming.ttc", 0),
-    ("AR PL UKai TW", "/usr/share/fonts/truetype/arphic/ukai.ttc", 0),
-    ("STHeiti", "/System/Library/Fonts/STHeiti Medium.ttc", 0),
+    ("jf-openhuninn", "assets/fonts/jf-openhuninn.ttf"),
+]
+# Same rationale as _CJK_FONT_CANDIDATES, for `en` captions -- previously
+# `en` pages accidentally rendered in the CJK font too, since font resolution
+# ignored language entirely.
+_LATIN_FONT_CANDIDATES = [
+    ("OpenSans", "assets/fonts/OpenSans.ttf"),
 ]
 
 _cjk_font_name: str | None = None
+_latin_font_name: str | None = None
+
+
+def _register_first_available(candidates: list[tuple[str, str]]) -> str | None:
+    """Register and return the name of the first candidate font file that
+    exists and loads, or None if none of them do."""
+    for name, path in candidates:
+        if not Path(path).exists():
+            continue
+        try:
+            pdfmetrics.registerFont(TTFont(name, path))
+            logger.info("Registered font", extra={"font": name, "path": path})
+            return name
+        except TTFError:
+            continue
+    return None
 
 
 def _resolve_cjk_font(font_path: str | None = None) -> str:
-    """Register and return a usable CJK font.
-
-    Tries an embedded TrueType font file first (an explicit `font_path`,
-    then the fixed candidate list), then falls back to ReportLab's built-in
-    'STSong-Light' CID font -- no font file needed, since it relies on the
-    PDF viewer's own CJK font substitution (confirmed by direct testing to
-    render Traditional Chinese and Bopomofo correctly). This fallback always
-    succeeds: it ships as reportlab package data, not a filesystem lookup.
+    """Register and return the project's fixed CJK font (see
+    _CJK_FONT_CANDIDATES). Falls back to ReportLab's built-in 'STSong-Light'
+    CID font if the bundled file is missing -- no font file needed, since it
+    relies on the PDF viewer's own CJK font substitution (confirmed by direct
+    testing to render Traditional Chinese and Bopomofo correctly).
 
     Result is cached: the font is registered once per process.
     """
@@ -73,25 +93,38 @@ def _resolve_cjk_font(font_path: str | None = None) -> str:
     if _cjk_font_name is not None:
         return _cjk_font_name
 
-    candidates = list(_CJK_FONT_CANDIDATES)
-    if font_path:
-        candidates.insert(0, ("CustomCJK", font_path, 0))
-
-    for name, path, index in candidates:
-        if not Path(path).exists():
-            continue
-        try:
-            pdfmetrics.registerFont(TTFont(name, path, subfontIndex=index))
-            _cjk_font_name = name
-            logger.info("Registered CJK font", extra={"font": name, "path": path})
-            return name
-        except TTFError:
-            continue
-
-    pdfmetrics.registerFont(UnicodeCIDFont("STSong-Light"))
-    _cjk_font_name = "STSong-Light"
-    logger.info("Registered built-in CID CJK font", extra={"font": "STSong-Light"})
+    candidates = [("CustomCJK", font_path)] if font_path else []
+    candidates += _CJK_FONT_CANDIDATES
+    name = _register_first_available(candidates)
+    if name is None:
+        pdfmetrics.registerFont(UnicodeCIDFont("STSong-Light"))
+        logger.info("Registered built-in CID CJK font", extra={"font": "STSong-Light"})
+        name = "STSong-Light"
+    _cjk_font_name = name
     return _cjk_font_name
+
+
+def _resolve_latin_font() -> str:
+    """Register and return the project's fixed Latin font for `en` captions
+    (see _LATIN_FONT_CANDIDATES). Falls back to ReportLab's built-in
+    'Helvetica' (a standard-14 font, always available, no registration
+    needed) if the bundled file is missing.
+
+    Result is cached: the font is registered once per process.
+    """
+    global _latin_font_name
+    if _latin_font_name is None:
+        _latin_font_name = _register_first_available(_LATIN_FONT_CANDIDATES) or "Helvetica"
+    return _latin_font_name
+
+
+def _resolve_font(language: str, font_path: str | None = None) -> str:
+    """Resolve the one fixed font for `language` -- CJK for zh-tw, Latin
+    otherwise. `font_path` overrides the CJK candidate only; there is no
+    equivalent per-run override for the Latin font today."""
+    if language == "zh-tw":
+        return _resolve_cjk_font(font_path)
+    return _resolve_latin_font()
 
 
 def _cover_fit_image(
@@ -225,7 +258,7 @@ def build_picture_book_pdf(
     assert len(illustration_paths) == len(pages), (
         f"Mismatch: {len(illustration_paths)} illustrations vs {len(pages)} pages"
     )
-    font = _resolve_cjk_font(font_path)
+    font = _resolve_font(language, font_path)
     page_w, page_h = page_size
 
     c = canvas.Canvas(output_path, pagesize=page_size)

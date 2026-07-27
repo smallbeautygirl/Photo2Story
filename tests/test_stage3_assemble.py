@@ -152,6 +152,40 @@ def test_resolve_cjk_font_falls_back_to_builtin_cid_font(monkeypatch):
     assert result == "STSong-Light"
 
 
+def test_resolve_cjk_font_uses_bundled_jf_openhuninn(monkeypatch):
+    """The bundled font file must actually resolve -- guards against the
+    previous bug where every system-path candidate was silently absent and
+    every render fell back to STSong-Light without anyone noticing."""
+    import src.stages.stage3_assemble as mod
+
+    monkeypatch.setattr(mod, "_cjk_font_name", None)
+
+    result = mod._resolve_cjk_font()
+
+    assert result == "jf-openhuninn"
+
+
+def test_resolve_latin_font_uses_bundled_open_sans(monkeypatch):
+    import src.stages.stage3_assemble as mod
+
+    monkeypatch.setattr(mod, "_latin_font_name", None)
+
+    result = mod._resolve_latin_font()
+
+    assert result == "OpenSans"
+
+
+def test_resolve_font_dispatches_on_language(monkeypatch):
+    """en captions must not silently render in the CJK font."""
+    import src.stages.stage3_assemble as mod
+
+    monkeypatch.setattr(mod, "_cjk_font_name", None)
+    monkeypatch.setattr(mod, "_latin_font_name", None)
+
+    assert mod._resolve_font("zh-tw") == "jf-openhuninn"
+    assert mod._resolve_font("en") == "OpenSans"
+
+
 def test_build_picture_book_pdf_zh_tw_creates_file(tmp_path, tmp_images):
     from src.stages.stage3_assemble import build_picture_book_pdf
 

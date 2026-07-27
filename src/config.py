@@ -32,7 +32,8 @@ class Stage2Config(TypedDict):
 class Stage3Config(TypedDict):
     output_format: Literal["pdf"]
     page_layout: Literal["image_top_text_bottom", "picture_book", "picture_book_spread"]
-    # Optional override for the CJK font file; auto-detected from the system when omitted.
+    # Optional override for the CJK font file; defaults to the bundled
+    # jf-openhuninn font when omitted (see docs/adr/0003-fixed-font-across-pipeline.md).
     font_path: NotRequired[str]
 
 
