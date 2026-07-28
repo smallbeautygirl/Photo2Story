@@ -229,6 +229,33 @@ def test_search_candidates_skips_wide_short_preset_when_has_gutter():
     assert all(c.preset != "wide_short" for c in candidates)
 
 
+def test_search_candidates_escalates_to_scrim_when_a_small_hotspot_hides_in_an_otherwise_safe_average():
+    """A small, highly salient hotspot (e.g. a colorful logo on an otherwise
+    plain shirt) can be diluted away by a large candidate rectangle's mean
+    badness and still register as safe -- reproduced against a real
+    storybook page where a small embroidered patch sat directly under
+    rendered text despite the chosen rectangle's average badness being far
+    under SAFE_THRESHOLD. The single worst cell inside the chosen rectangle
+    must still force a scrim even when the average does not."""
+    from src.stages.text_placement import SAFE_THRESHOLD, BadnessMap, search_candidates
+
+    grid = 200
+    badness = np.full((grid, grid), 0.9, dtype=np.float32)
+    # The only region text can fit in cleanly: a 44x56 patch matching
+    # narrow_tall's rectangle size for this caption, at (100, 50).
+    badness[100:144, 50:106] = 0.05
+    badness[120:124, 76:80] = 1.0  # a small hotspot inside that otherwise-clean patch
+    badness_map = BadnessMap(
+        badness=badness, variance=np.zeros_like(badness), brightness=np.full_like(badness, 200.0)
+    )
+
+    candidates = search_candidates(badness_map, "A short caption.", "Helvetica", "en", 400.0, 400.0)
+    narrow_tall = next(c for c in candidates if c.preset == "narrow_tall")
+
+    assert narrow_tall.badness <= SAFE_THRESHOLD
+    assert narrow_tall.requires_scrim
+
+
 def test_pick_best_selects_highest_combined_score():
     from src.stages.text_placement import Candidate, pick_best
 

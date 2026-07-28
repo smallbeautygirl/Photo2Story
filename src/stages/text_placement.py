@@ -9,7 +9,7 @@ docs/superpowers/specs/2026-07-22-picture-book-text-overlay-design.md.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Literal
 
 import cv2
@@ -24,6 +24,11 @@ FONT_SIZE_STEP = 2.0
 
 # A candidate's average badness must be at or below this to avoid a scrim.
 SAFE_THRESHOLD = 0.35
+# A candidate's single worst cell forces a scrim even when its average is
+# safe -- a large rectangle's mean can dilute a small, highly salient
+# hotspot (a logo, a sign, a bright highlight) down to a safe-looking
+# average while that hotspot still sits directly under the rendered text.
+PEAK_BADNESS_THRESHOLD = 0.85
 # Opacity of the fallback scrim panel when no candidate clears SAFE_THRESHOLD.
 SCRIM_OPACITY = 0.55
 # A candidate's average variance at or below this draws as plain text;
@@ -99,6 +104,11 @@ def _integral_image(arr: np.ndarray) -> np.ndarray:
 def _rect_sum(integral: np.ndarray, y0: int, x0: int, y1: int, x1: int) -> float:
     """Sum of the original array over rows [y0, y1) and columns [x0, x1)."""
     return float(integral[y1, x1] - integral[y0, x1] - integral[y1, x0] + integral[y0, x0])
+
+
+def _rect_max(arr: np.ndarray, y0: int, x0: int, y1: int, x1: int) -> float:
+    """Max of the original array over rows [y0, y1) and columns [x0, x1)."""
+    return float(arr[y0:y1, x0:x1].max())
 
 
 def _rect_sums_for_size(integral: np.ndarray, rect_h: int, rect_w: int) -> np.ndarray:
@@ -304,6 +314,10 @@ def search_candidates(
                 requires_scrim=True,
                 preset=preset,
             )
+
+        peak = _rect_max(badness_map.badness, y0, x0, y0 + rect_h, x0 + rect_w)
+        if peak > PEAK_BADNESS_THRESHOLD and not chosen.requires_scrim:
+            chosen = replace(chosen, requires_scrim=True)
         candidates.append(chosen)
     return candidates
 
