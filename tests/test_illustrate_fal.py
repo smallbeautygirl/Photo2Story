@@ -185,3 +185,15 @@ def test_prompt_includes_anatomy_quality_hint(fake_fal, tmp_path):
 
     prompt = fake_fal[0][1]["prompt"]
     assert illustrate_fal.ANATOMY_QUALITY_HINT in prompt
+
+
+def test_prompt_includes_text_quality_hint(fake_fal, tmp_path):
+    """FLUX has no negative-prompt support, so illegible signage text and
+    hallucinated watermark/signature marks also have to be steered with
+    positive reinforcement in every prompt."""
+    generate_illustrations_fal(
+        ["a family walking past shop signs on a busy street"], "ghibli", {}, str(tmp_path)
+    )
+
+    prompt = fake_fal[0][1]["prompt"]
+    assert illustrate_fal.TEXT_QUALITY_HINT in prompt

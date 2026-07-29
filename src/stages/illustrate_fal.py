@@ -54,6 +54,11 @@ ANATOMY_QUALITY_HINT = (
     "no extra limbs"
 )
 
+# Same no-negative-prompt limitation produces illegible pseudo-text on signage
+# and hallucinated watermark/signature marks in image corners. Positive
+# reinforcement is the only lever available here too.
+TEXT_QUALITY_HINT = "plain signage without legible text, no watermark, no signature"
+
 # FLUX occasionally returns an all-black frame (a NaN glitch on a bad seed).
 # Re-running picks a fresh seed, so retry a few times before giving up.
 MAX_ATTEMPTS = 3
@@ -107,7 +112,7 @@ def _build_prompt(scene: str, preset: StylePreset, character_ref: str = "") -> s
     prompt = SD_PROMPT_TEMPLATE.format(scene=scene, style_prompt=style_prompt)
     if preset.flux_prompt_suffix:
         prompt = f"{prompt} {preset.flux_prompt_suffix}"
-    prompt = f"{prompt} {ANATOMY_QUALITY_HINT}."
+    prompt = f"{prompt} {ANATOMY_QUALITY_HINT}, {TEXT_QUALITY_HINT}."
     if character_ref:
         prompt = f"{prompt} Recurring characters and setting across the book: {character_ref}."
     return prompt
