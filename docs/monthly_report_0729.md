@@ -6,33 +6,33 @@
 ## Pipeline 總覽（stage0 → stage3）
 
 ```mermaid
-flowchart LR
-    subgraph S0["stage0：照片選擇<br/>(stage0_select.py)"]
-        direction TB
-        S0A["CLIP 分群 + VLM/LLM 評分<br/>+ EXIF 排序"]
+flowchart TD
+    subgraph S0["stage0：照片選擇 (stage0_select.py)"]
+        direction LR
+        S0A["CLIP 分群 + VLM/LLM 評分 + EXIF 排序"]
     end
 
-    subgraph S1["stage1：故事生成<br/>(stage1_story.py)"]
-        direction TB
+    subgraph S1["stage1：故事生成 (stage1_story.py)"]
+        direction LR
         S1A["因果敘事推論 + 逐頁文字生成"]
-        S1B["🟡 跨頁角色連續性 taxonomy<br/>（本次調整）"]
-        S1C["🟡 語法完整性 + 防幻覺標誌文字提示<br/>（本次調整）"]
+        S1B["🟡 跨頁角色連續性 taxonomy（本次調整）"]
+        S1C["🟡 語法完整性 + 防幻覺標誌文字提示（本次調整）"]
     end
 
-    subgraph S2["stage2：插畫生成<br/>(stage2_illustrate.py)"]
-        direction TB
-        S2A["FLUX.1 全跨頁插畫<br/>（畫風：ghibli/pixar/disney/crayon）"]
-        S2B["🟢 固定字型不隨畫風調整<br/>（延續 6/28，已確定）"]
+    subgraph S2["stage2：插畫生成 (stage2_illustrate.py)"]
+        direction LR
+        S2A["FLUX.1 全跨頁插畫（畫風：ghibli/pixar/disney/crayon）"]
+        S2B["🟢 固定字型不隨畫風調整（延續 6/28，已確定）"]
     end
 
-    subgraph S3["stage3：排版組裝<br/>(stage3_assemble.py)"]
-        direction TB
-        S3A["🟡 badness map 文字安全區偵測<br/>+ scrim 疊加（本次調整）"]
-        S3B["🟡 注音排版校正<br/>（本次調整）"]
-        S3C["build_spread_pdf 雙頁對開輸出<br/>🟢 已確定"]
+    subgraph S3["stage3：排版組裝 (stage3_assemble.py)"]
+        direction LR
+        S3A["🟡 badness map 文字安全區偵測 + scrim 疊加（本次調整）"]
+        S3B["🟡 注音排版校正（本次調整）"]
+        S3C["build_spread_pdf 雙頁對開輸出 🟢 已確定"]
     end
 
-    EVAL["🔵 離線評估（下次可優化）<br/>narrative_continuity_judge / clip_score<br/>→ 目前僅評分，尚未反饋進生成迴圈；<br/>膚色一致性尚未納入 judge"]
+    EVAL["🔵 離線評估（下次可優化）：narrative_continuity_judge / clip_score<br/>目前僅評分，尚未反饋進生成迴圈；膚色一致性尚未納入 judge"]
 
     S0 --> S1 --> S2 --> S3
     S1 -.評分.-> EVAL
