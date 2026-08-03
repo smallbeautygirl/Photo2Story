@@ -21,7 +21,7 @@ flowchart TD
 
     subgraph S2["stage2：插畫生成 (stage2_illustrate.py)"]
         direction LR
-        S2A["FLUX.1 全跨頁插畫（畫風：ghibli/pixar/disney/crayon）"]
+        S2A["FLUX.1-dev 全跨頁插畫（透過 fal.ai 託管 API，畫風：ghibli/pixar/disney/crayon）"]
         S2B["🟢 固定字型不隨畫風調整（延續 6/28，已確定）"]
     end
 
