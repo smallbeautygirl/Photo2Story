@@ -47,7 +47,7 @@ evidence, not primary.
 The old name describes behavior (full-bleed + caption overlay) that no longer
 applies. Rename the config value everywhere it appears:
 `configs/demo.yaml`, the `Literal` type in `src/config.py`,
-`docs/storybook_improvements.md`. The legacy `image_top_text_bottom` path
+`docs/superpowers/specs/2026-06-28-storybook-improvements-design.md`. The legacy `image_top_text_bottom` path
 (`build_pdf`) is unchanged — it's used by all ablation configs and is out of
 scope for this change.
 

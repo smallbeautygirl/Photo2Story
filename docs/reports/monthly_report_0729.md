@@ -1,6 +1,6 @@
 # Photo2Story 進度報告 — 2026/07/01 ~ 2026/07/29
 
-> 承接 6/28 的 [storybook_improvements.md](storybook_improvements.md)（畫風收斂、閱讀分級、FLUX.1 全跨頁版面）。
+> 承接 6/28 的 [storybook_improvements.md](../superpowers/specs/2026-06-28-storybook-improvements-design.md)（畫風收斂、閱讀分級、FLUX.1 全跨頁版面）。
 > 本文件整理**這個月新增的五項優化**，並附上目前的實際輸出，與四本 0-2 歲、三本 3-6 歲的市售繪本做視覺對照。
 
 ---

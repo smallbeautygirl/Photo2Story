@@ -25,7 +25,7 @@
 ## 開會前的準備清單（會議前 5 分鐘完成）
 
 - [ ] 螢幕分享（Screen Share）預先測試確認可用
-- [ ] 開好 VSCode 視窗：[`docs/pipeline_report.md`](pipeline_report.md) + 上次成功跑出的 `pages.md`（備案）
+- [ ] 開好 VSCode 視窗：[`docs/reports/pipeline_report.md`](pipeline_report.md) + 上次成功跑出的 `pages.md`（備案）
 - [ ] 終端機切到 `Photo2Story` 根目錄、指令打好但**還沒按 Enter**
 - [ ] PDF 閱讀器打開待用（demo 完要開 `storybook.pdf`）
 - [ ] 把網頁分頁、Slack、通知都關掉
@@ -73,7 +73,7 @@ python run_experiment.py \
 
 ## ⏱️ 3-8 分鐘：整體架構總覽
 
-**切到 [`docs/pipeline_report.md`](pipeline_report.md) 的 §1.1 表格 + §6.4 端到端流程圖。**
+**切到 [`docs/reports/pipeline_report.md`](pipeline_report.md) 的 §1.1 表格 + §6.4 端到端流程圖。**
 
 **講的重點：**
 
@@ -140,7 +140,7 @@ python run_experiment.py \
 
 ## ⏱️ 22-27 分鐘：下次計畫
 
-**切到 [`docs/pipeline_report.md`](pipeline_report.md) 的 §8（下次預計改進方向）。**
+**切到 [`docs/reports/pipeline_report.md`](pipeline_report.md) 的 §8（下次預計改進方向）。**
 
 ### 講的重點（按優先順序）：
 

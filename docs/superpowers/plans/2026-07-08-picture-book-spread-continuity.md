@@ -28,7 +28,7 @@
 **Files:**
 - Modify: `src/config.py:32-34`
 - Modify: `configs/demo.yaml:24`
-- Modify: `docs/storybook_improvements.md:90-118, 122-138`
+- Modify: `docs/superpowers/specs/2026-06-28-storybook-improvements-design.md:90-118, 122-138`
 - Test: `tests/test_config.py`
 
 **Interfaces:**
@@ -90,7 +90,7 @@ with:
   page_layout: picture_book_spread
 ```
 
-In `docs/storybook_improvements.md`, replace lines 90-118:
+In `docs/superpowers/specs/2026-06-28-storybook-improvements-design.md`, replace lines 90-118:
 
 ```markdown
 ### 做法
@@ -156,7 +156,7 @@ stage3:
 ```
 ```
 
-In `docs/storybook_improvements.md`, replace lines 122-138:
+In `docs/superpowers/specs/2026-06-28-storybook-improvements-design.md`, replace lines 122-138:
 
 ```markdown
 ## 總結：一份 demo 設定就能開啟三項調整
@@ -208,7 +208,7 @@ Expected: PASS (nothing currently depends on the literal string `"full_bleed_cap
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/config.py configs/demo.yaml docs/storybook_improvements.md tests/test_config.py
+git add src/config.py configs/demo.yaml docs/superpowers/specs/2026-06-28-storybook-improvements-design.md tests/test_config.py
 git commit -m "refactor(config): ♻️ rename full_bleed_caption to picture_book
 
 Renames the stage3 layout config value ahead of implementing the

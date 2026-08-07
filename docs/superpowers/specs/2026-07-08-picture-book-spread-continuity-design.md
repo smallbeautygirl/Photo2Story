@@ -6,7 +6,7 @@ The 2026-07-01 `picture_book` layout design was derived entirely from 0-2 age
 board books (`reference/0-2/`) and produces one square illustration per
 single page. It has no reference basis for the 3-6 age band, and the
 pipeline has no way to measure whether page-to-page narrative continuity
-(the RQ3 causal-inference hypothesis in `docs/next_deliverables.md`) is
+(the RQ3 causal-inference hypothesis in `docs/reports/next_deliverables.md`) is
 actually working beyond subjective A/B comparison.
 
 ## Reference observations (age 3-6)
@@ -138,7 +138,7 @@ across 5 books, with a per-book dominant-mechanism summary).
 ### New eval script: `src/eval/narrative_continuity_judge.py`
 
 Extends the `llm_judge.py` script already planned in
-`docs/next_deliverables.md`. For each adjacent caption pair in a pipeline
+`docs/reports/next_deliverables.md`. For each adjacent caption pair in a pipeline
 run, asks the judge model to classify continuity against the same taxonomy
 used for calibration. Outputs per-transition category + a book-level
 aggregate (e.g. "6 of 8 transitions show explicit continuity").
@@ -149,7 +149,7 @@ HTTP calls in unit tests).
 ### Within-spread relevance
 
 Reuses the `clip_score.py` script already planned in
-`docs/next_deliverables.md`, applied per spread (caption vs. its own
+`docs/reports/next_deliverables.md`, applied per spread (caption vs. its own
 illustration) instead of per page. No new script.
 
 ### Thesis claim this produces
@@ -157,7 +157,7 @@ illustration) instead of per page. No new script.
 A quantified, benchmarked comparison: the `causal` ablation's continuity
 score against the taxonomy, versus the same taxonomy's score on real
 published books, versus the `no_causal` baseline — replacing the current
-purely subjective side-by-side comparison in `docs/next_deliverables.md`'s
+purely subjective side-by-side comparison in `docs/reports/next_deliverables.md`'s
 RQ3 deliverable.
 
 ## Testing
