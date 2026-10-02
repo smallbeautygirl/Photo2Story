@@ -19,3 +19,7 @@ A page whose caption is empty (or whitespace-only). Renders as a full-bleed illu
 
 **Gutter**:
 The vertical line at the physical binding fold of a `picture_book_spread` page, at `page_width / 2`. A hard exclusion for text candidates — a candidate whose x-range would cross it is never generated — but not a constraint on the illustration, which may span it freely. Does not apply to single-page `picture_book` layouts.
+
+**Character reference image**:
+One or more of the most recently generated spread illustrations (a rolling window of the previous 1-2 spreads, not the original source photos), passed to FLUX Kontext as image-conditioning input so the next spread's illustration visually matches the recurring character's actual rendered appearance rather than only a text description of it. Gated by `stage2.use_character_reference`; unavailable for the first spread of a book, which always falls back to text-only generation.
+_Avoid_: character reference (ambiguous with the pre-existing text-only continuity string built by `_build_character_reference` in `illustrate_fal.py`), reference image (also used for the unrelated IP-Adapter style-image mechanism in the local SD 1.5 backend).
