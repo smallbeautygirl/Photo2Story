@@ -6,7 +6,6 @@ import re
 from datetime import datetime
 
 import numpy as np
-import piexif
 import pillow_heif
 from PIL import Image
 from sklearn.cluster import KMeans
@@ -26,6 +25,10 @@ logger = logging.getLogger(__name__)
 pillow_heif.register_heif_opener()
 
 _SCORE_RE = re.compile(r"[-+]?\d*\.?\d+")
+# EXIF tag ids (see the EXIF 2.3 spec): the Exif sub-IFD pointer, DateTimeOriginal, DateTime.
+_EXIF_IFD_TAG = 0x8769
+_DATETIME_ORIGINAL_TAG = 36867
+_DATETIME_TAG = 306
 _LOW_SCORE_THRESHOLD = 0.4
 _DEFAULT_RELEVANCE = 0.5
 
@@ -135,17 +138,20 @@ def infer_theme_from_descriptions(
 def sort_by_exif(image_paths: list[str]) -> list[str]:
     """Phase C: Sort by EXIF DateTimeOriginal; images without EXIF go to end."""
     def get_dt(p: str) -> datetime | None:
+        # PIL rather than piexif: piexif only parses JPEG/TIFF, so every iPhone HEIC
+        # would be treated as undated and pushed to the end of the book.
         try:
-            exif = piexif.load(p)
-        except (FileNotFoundError, piexif.InvalidImageDataError, ValueError) as e:
+            with Image.open(p) as image:
+                exif = image.getexif()
+        except (FileNotFoundError, OSError) as e:
             logger.warning("Could not load EXIF", extra={"path": p, "error": str(e)})
             return None
-        raw = exif.get("Exif", {}).get(piexif.ExifIFD.DateTimeOriginal)
+        raw = exif.get_ifd(_EXIF_IFD_TAG).get(_DATETIME_ORIGINAL_TAG) or exif.get(_DATETIME_TAG)
         if not raw:
             return None
         try:
-            return datetime.strptime(raw.decode(), "%Y:%m:%d %H:%M:%S")
-        except (ValueError, AttributeError):
+            return datetime.strptime(str(raw), "%Y:%m:%d %H:%M:%S")
+        except ValueError:
             logger.warning(
                 "Could not parse DateTimeOriginal",
                 extra={"path": p, "raw": str(raw)[:32]},

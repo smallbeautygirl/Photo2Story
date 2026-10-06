@@ -171,3 +171,21 @@ def test_run_stage0_hybrid_mode_calls_vlm_and_scores(tmp_images, demo_config, mo
     assert len(result["ordered_paths"]) == cfg["k"]
     mock_describe.assert_called_once()
     mock_score.assert_called_once()
+
+
+def test_sort_by_exif_orders_heic_by_its_timestamp(tmp_path):
+    """iPhone HEIC photos carry EXIF too; an earlier HEIC must sort before a later JPG
+    instead of being dumped at the end as 'no EXIF'."""
+    from PIL import Image as PILImage
+
+    def save_with_timestamp(path, timestamp):
+        exif = PILImage.Exif()
+        exif[306] = timestamp  # DateTime
+        exif.get_ifd(0x8769)[36867] = timestamp  # DateTimeOriginal
+        PILImage.new("RGB", (64, 64), color=(10, 20, 30)).save(path, exif=exif.tobytes())
+        return str(path)
+
+    later_jpg = save_with_timestamp(tmp_path / "later.jpg", "2026:06:07 13:58:22")
+    earlier_heic = save_with_timestamp(tmp_path / "earlier.heic", "2026:06:07 11:31:28")
+
+    assert sort_by_exif([later_jpg, earlier_heic]) == [earlier_heic, later_jpg]
