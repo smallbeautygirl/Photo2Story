@@ -30,5 +30,7 @@ def setup_logging(log_file: Path | str, level: int = logging.INFO) -> Path:
     root.handlers.clear()
     root.addHandler(stream_handler)
     root.addHandler(file_handler)
+    # httpx logs one INFO line per request; the Ollama backend makes hundreds per run.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
 
     return log_file

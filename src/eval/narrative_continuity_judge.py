@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 
-from src.utils.gemini_client import generate_text
+from src.utils.llm_client import generate_text
 
 logger = logging.getLogger(__name__)
 

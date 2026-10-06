@@ -1,0 +1,7 @@
+# Run Stage 0 / Stage 1 language-model calls on self-hosted Gemma 4, with Vertex AI Gemini as the comparison backend
+
+Status: accepted
+
+The RQ1–RQ3 ablations need on the order of a thousand VLM/LLM calls over six photo sets, and every one of those calls carries photographs of real family members, including children. Vertex AI Gemini (the backend used for the July demos) bills per call and sends the photos to a third party; the Gemini Developer API free tier avoids the bill but its terms allow the submitted data to be reviewed and used for training, which is not acceptable for this material. The lab's Ollama server exposes Gemma 4 31B (`gemma4:31b-it-q4_K_M`) with vision, JSON-formatted output and a thinking switch, all behind the internal network at no marginal cost; a probe showed ~15 s per image description and ~3 s per relevance score, slow but workable for batch ablation runs.
+
+Language-model calls therefore go through `src/utils/llm_client.py`, which routes by model name (`gemini*` to Vertex AI, anything else to Ollama) or by the `LLM_BACKEND` environment variable. Experiment configs (`configs/demo_gemma.yaml`) name the Gemma model; Gemini remains available through the same interface so the ablation results can be re-run on it as a robustness check, and the thesis describes the model choice as an engineering decision (cost, privacy, reproducibility), not a contribution. All runs that are compared against each other within one research question must use the same backend.

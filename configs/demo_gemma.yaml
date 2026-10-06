@@ -1,0 +1,24 @@
+stage0:
+  mode: hybrid
+  clip_model: ViT-B-32
+  clip_pretrained: openai
+  vlm_model: gemma4:31b-it-q4_K_M
+  llm_model: gemma4:31b-it-q4_K_M
+  k: 4
+
+stage1:
+  model: gemma4:31b-it-q4_K_M
+  context_mode: full
+  use_causal_inference: true
+  reading_level: simple
+
+stage2:
+  backend: fal
+  base_model: runwayml/stable-diffusion-v1-5
+  use_ipadapter: true
+  use_stylealigned: false
+  style_image_path: null
+
+stage3:
+  output_format: pdf
+  page_layout: picture_book_spread

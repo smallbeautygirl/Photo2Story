@@ -113,6 +113,7 @@ def write_outputs(
         "effective_context": result["effective_context"],
         "selected_paths": result["selected_paths"],
         "ordered_paths": result["ordered_paths"],
+        "descriptions": result.get("descriptions", {}),
         **result["diagnostics"],
         "cluster_labels": reference_labels,
         "metrics": metrics,

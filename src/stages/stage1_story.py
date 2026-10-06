@@ -4,7 +4,7 @@ import json
 import logging
 import re
 
-from src.utils.gemini_client import generate_text
+from src.utils.llm_client import generate_text
 from src.utils.prompt_templates import (
     LLM_CAUSAL_INFERENCE,
     LLM_STORY_GENERATION,

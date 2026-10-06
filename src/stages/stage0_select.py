@@ -10,7 +10,7 @@ import pillow_heif
 from PIL import Image
 from sklearn.cluster import KMeans
 
-from src.utils.gemini_client import describe_image, generate_text
+from src.utils.llm_client import describe_image, generate_text
 from src.utils.prompt_templates import (
     LLM_INFER_THEME,
     LLM_SCORE_RELEVANCE,
@@ -93,7 +93,7 @@ def clip_cluster_select(
 def describe_photos_with_vlm(image_paths: list[str], model_name: str) -> dict[str, str]:
     """Phase B step 1: Generate a text description for each photo via Gemini VLM."""
     logger.info(
-        "Describing photos with Gemini VLM",
+        "Describing photos with VLM",
         extra={"model": model_name, "count": len(image_paths)},
     )
     return {
@@ -118,7 +118,7 @@ def score_relevance_with_llm(
 ) -> dict[str, float]:
     """Phase B step 2: Score each description's relevance to user context."""
     logger.info(
-        "Scoring photo relevance with Gemini LLM",
+        "Scoring photo relevance with LLM",
         extra={"model": model_name, "count": len(descriptions), "context": context},
     )
     scores: dict[str, float] = {}
