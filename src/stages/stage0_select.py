@@ -33,13 +33,8 @@ _LOW_SCORE_THRESHOLD = 0.4
 _DEFAULT_RELEVANCE = 0.5
 
 
-def clip_cluster_select(
-    image_paths: list[str],
-    k: int,
-    model_name: str,
-    pretrained: str,
-) -> list[str]:
-    """Phase A: Select k diverse photos using CLIP embeddings + K-means."""
+def encode_clip_features(image_paths: list[str], model_name: str, pretrained: str) -> np.ndarray:
+    """L2-normalised CLIP image embeddings, one row per photo."""
     import open_clip
     import torch
 
@@ -55,8 +50,17 @@ def clip_cluster_select(
     with torch.no_grad():
         features = model.encode_image(images).cpu().numpy().astype(np.float32)
 
-    features /= np.linalg.norm(features, axis=1, keepdims=True)
+    return features / np.linalg.norm(features, axis=1, keepdims=True)
 
+
+def kmeans_select(
+    features: np.ndarray, image_paths: list[str], k: int
+) -> tuple[list[str], dict[str, int]]:
+    """Phase A: K-means over CLIP features; pick the photo nearest each cluster centre.
+
+    Returns the k selected paths and every photo's cluster label, so callers can
+    see which clusters a selection covers.
+    """
     kmeans = KMeans(n_clusters=k, random_state=42, n_init=10)
     labels = kmeans.fit_predict(features)
 
@@ -70,6 +74,19 @@ def clip_cluster_select(
         global_idx = int(np.where(mask)[0][local_best])
         selected.append(image_paths[global_idx])
 
+    cluster_labels = {p: int(label) for p, label in zip(image_paths, labels, strict=True)}
+    return selected, cluster_labels
+
+
+def clip_cluster_select(
+    image_paths: list[str],
+    k: int,
+    model_name: str,
+    pretrained: str,
+) -> list[str]:
+    """Select k diverse photos using CLIP embeddings + K-means."""
+    features = encode_clip_features(image_paths, model_name, pretrained)
+    selected, _ = kmeans_select(features, image_paths, k)
     return selected
 
 
@@ -171,19 +188,24 @@ def _replace_low_score_candidates(
     image_paths: list[str],
     effective_context: str,
     config: dict,
-) -> None:
-    """In place: swap any candidate scoring < threshold with best-scoring pool replacement."""
+) -> list[dict[str, str | float]]:
+    """In place: swap any candidate scoring < threshold with best-scoring pool replacement.
+
+    Pool scores are merged into `scores`; returns one record per swap made.
+    """
     low_score_paths = [p for p in candidates if scores.get(p, 1.0) < _LOW_SCORE_THRESHOLD]
     if not low_score_paths:
-        return
+        return []
 
     pool_paths = [p for p in image_paths if p not in candidates]
     if not pool_paths:
-        return
+        return []
 
     pool_descs = describe_photos_with_vlm(pool_paths, config["vlm_model"])
     pool_scores = score_relevance_with_llm(pool_descs, effective_context, config["llm_model"])
+    scores.update(pool_scores)
 
+    replacements: list[dict[str, str | float]] = []
     for bad_path in low_score_paths:
         if not pool_paths:
             break
@@ -193,6 +215,15 @@ def _replace_low_score_candidates(
         descriptions[best_replacement] = pool_descs[best_replacement]
         del descriptions[bad_path]
         pool_paths.remove(best_replacement)
+        replacements.append({
+            "removed": bad_path,
+            "removed_score": scores[bad_path],
+            "added": best_replacement,
+            "added_score": pool_scores[best_replacement],
+        })
+
+    logger.info("Replaced low-relevance candidates", extra={"replacements": replacements})
+    return replacements
 
 
 def run_stage0(image_paths: list[str], context: str, config: dict) -> dict:
@@ -205,30 +236,33 @@ def run_stage0(image_paths: list[str], context: str, config: dict) -> dict:
             "descriptions": dict[str, str],  # path -> VLM description (ordered)
             "ordered_paths": list[str],      # final time-ordered k paths
             "effective_context": str,        # user context, or LLM-inferred theme if empty
+            "diagnostics": {                 # why these photos: for RQ1 analysis
+                "cluster_labels": dict[str, int],   # every photo's CLIP cluster (clip_only/hybrid)
+                "scores": dict[str, float],         # LLM relevance of every scored photo
+                "replacements": list[dict],         # low-score swaps made in hybrid mode
+            },
         }
     """
     mode = config["mode"]
     k = config["k"]
     descriptions: dict[str, str] = {}
+    cluster_labels: dict[str, int] = {}
+    scores: dict[str, float] = {}
+    replacements: list[dict[str, str | float]] = []
 
     # Phase A: candidate selection
     if mode == "random":
         candidates = random.sample(image_paths, min(k, len(image_paths)))
-    elif mode == "clip_only":
-        candidates = clip_cluster_select(
-            image_paths, k, config["clip_model"], config["clip_pretrained"]
-        )
+    elif mode in ("clip_only", "hybrid"):
+        features = encode_clip_features(image_paths, config["clip_model"], config["clip_pretrained"])
+        candidates, cluster_labels = kmeans_select(features, image_paths, k)
     elif mode == "llm_only":
         all_descs = describe_photos_with_vlm(image_paths, config["vlm_model"])
         scoring_ctx = context or infer_theme_from_descriptions(all_descs, config["llm_model"])
-        all_scores = score_relevance_with_llm(all_descs, scoring_ctx, config["llm_model"])
-        sorted_paths = sorted(all_scores, key=lambda p: all_scores[p], reverse=True)
+        scores = score_relevance_with_llm(all_descs, scoring_ctx, config["llm_model"])
+        sorted_paths = sorted(scores, key=lambda p: scores[p], reverse=True)
         candidates = sorted_paths[:k]
         descriptions = {p: all_descs[p] for p in candidates}
-    elif mode == "hybrid":
-        candidates = clip_cluster_select(
-            image_paths, k, config["clip_model"], config["clip_pretrained"]
-        )
     else:
         raise ValueError(f"Unknown stage0 mode: {mode}")
 
@@ -249,7 +283,7 @@ def run_stage0(image_paths: list[str], context: str, config: dict) -> dict:
     # Phase B (cont.): hybrid re-rank using effective context
     if mode == "hybrid" and effective_context:
         scores = score_relevance_with_llm(descriptions, effective_context, config["llm_model"])
-        _replace_low_score_candidates(
+        replacements = _replace_low_score_candidates(
             candidates, descriptions, scores, image_paths, effective_context, config
         )
 
@@ -272,4 +306,9 @@ def run_stage0(image_paths: list[str], context: str, config: dict) -> dict:
         "descriptions": ordered_descriptions,
         "ordered_paths": ordered,
         "effective_context": effective_context,
+        "diagnostics": {
+            "cluster_labels": cluster_labels,
+            "scores": scores,
+            "replacements": replacements,
+        },
     }

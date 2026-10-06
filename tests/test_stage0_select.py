@@ -173,6 +173,47 @@ def test_run_stage0_hybrid_mode_calls_vlm_and_scores(tmp_images, demo_config, mo
     mock_score.assert_called_once()
 
 
+def test_run_stage0_hybrid_reports_scores_clusters_and_replacements(
+    tmp_images, demo_config, mocker
+):
+    """hybrid mode exposes why it chose what it chose: every photo's cluster, every
+    scored photo's relevance, and each low-score candidate swapped for a pool photo."""
+    cfg = dict(demo_config["stage0"])
+    cfg["mode"] = "hybrid"
+    mock_oc = _make_open_clip_mock(np.eye(5, 512).astype(np.float32))
+
+    mocker.patch(
+        "src.stages.stage0_select.describe_photos_with_vlm",
+        side_effect=lambda paths, model: {p: f"desc {p}" for p in paths},
+    )
+    scoring_calls: list[list[str]] = []
+
+    def fake_scores(descriptions, context, model):
+        paths = list(descriptions)
+        scoring_calls.append(paths)
+        if len(scoring_calls) == 1:  # candidates: first one is off-topic
+            return {p: (0.1 if i == 0 else 0.9) for i, p in enumerate(paths)}
+        return {p: 0.95 for p in paths}  # replacement pool
+
+    mocker.patch("src.stages.stage0_select.score_relevance_with_llm", side_effect=fake_scores)
+
+    with patch.dict(sys.modules, {"open_clip": mock_oc}):
+        result = run_stage0(tmp_images, context="beach holiday", config=cfg)
+
+    initial_candidates, pool = scoring_calls
+    removed, added = initial_candidates[0], pool[0]
+    diagnostics = result["diagnostics"]
+
+    assert set(diagnostics["cluster_labels"]) == set(tmp_images)
+    assert diagnostics["scores"][removed] == 0.1
+    assert diagnostics["scores"][added] == 0.95
+    assert diagnostics["replacements"] == [
+        {"removed": removed, "removed_score": 0.1, "added": added, "added_score": 0.95}
+    ]
+    assert added in result["selected_paths"]
+    assert removed not in result["selected_paths"]
+
+
 def test_sort_by_exif_orders_heic_by_its_timestamp(tmp_path):
     """iPhone HEIC photos carry EXIF too; an earlier HEIC must sort before a later JPG
     instead of being dumped at the end as 'no EXIF'."""
