@@ -22,8 +22,10 @@ from src.core.logging import setup_logging
 from src.eval.stage0_contact_sheet import render_contact_sheet
 from src.eval.stage0_metrics import (
     cluster_coverage,
+    mean_importance,
     mean_pairwise_cosine_distance,
     mean_relevance,
+    precision_at_k,
 )
 from src.stages.stage0_select import (
     encode_clip_features,
@@ -37,12 +39,46 @@ logger = logging.getLogger(__name__)
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".heic", ".heif"}
 ALL_MODES = ("random", "clip_only", "llm_only", "hybrid")
 VLM_FREE_MODES = ("random", "clip_only")
+CONTEXT_MODES = ("none", "keyword", "full")
+MANIFEST_NAME = "manifest.json"
 
 
 def list_photos(set_dir: Path) -> list[str]:
     return sorted(
         str(p) for p in set_dir.iterdir() if p.is_file() and p.suffix.lower() in IMAGE_SUFFIXES
     )
+
+
+def load_manifest(set_dir: Path) -> tuple[dict[str, float], str]:
+    """CUFED-style manifest -> (importance by photo path, event keyword); empty if absent."""
+    manifest_path = set_dir / MANIFEST_NAME
+    if not manifest_path.is_file():
+        return {}, ""
+    manifest = json.loads(manifest_path.read_text())
+    importance = {
+        str(set_dir / photo["file"]): float(photo["importance_score"])
+        for photo in manifest.get("photos", [])
+        if "importance_score" in photo
+    }
+    # "BeachTrip" -> "beach trip": the dataset's event label doubles as a keyword context.
+    event_keyword = " ".join(
+        "".join(" " + c.lower() if c.isupper() else c for c in event).strip()
+        for event in manifest.get("event_types", [])
+    )
+    return importance, event_keyword
+
+
+def resolve_context(
+    context_mode: str, set_name: str, contexts: dict, event_keyword: str
+) -> str | None:
+    """The context string for this run, or None when the requested mode has no text for this set."""
+    if context_mode == "none":
+        return ""
+    entry = contexts.get(set_name, {})
+    if isinstance(entry, str):
+        entry = {"full": entry}
+    text = entry.get(context_mode, "") or (event_keyword if context_mode == "keyword" else "")
+    return text or None
 
 
 def select_without_vlm(
@@ -80,7 +116,11 @@ def run_mode(
 
 
 def compute_metrics(
-    result: dict, paths: list[str], features: np.ndarray, reference_labels: dict[str, int]
+    result: dict,
+    paths: list[str],
+    features: np.ndarray,
+    reference_labels: dict[str, int],
+    importance: dict[str, float],
 ) -> dict:
     selected = result["selected_paths"]
     selected_rows = [paths.index(p) for p in selected]
@@ -89,6 +129,8 @@ def compute_metrics(
         "cluster_coverage": cluster_coverage(reference_labels, selected),
         "mean_relevance": mean_relevance(result["diagnostics"]["scores"], selected),
         "replacement_count": len(result["diagnostics"]["replacements"]),
+        "mean_importance": mean_importance(importance, selected),
+        "precision_at_k": precision_at_k(importance, selected),
     }
 
 
@@ -113,7 +155,6 @@ def write_outputs(
         "effective_context": result["effective_context"],
         "selected_paths": result["selected_paths"],
         "ordered_paths": result["ordered_paths"],
-        "descriptions": result.get("descriptions", {}),
         **result["diagnostics"],
         "cluster_labels": reference_labels,
         "metrics": metrics,
@@ -125,9 +166,10 @@ def diagnose_set(
     set_dir: Path,
     modes: list[str],
     stage0_config: dict,
-    context: str,
     out_root: Path,
     *,
+    context_mode: str,
+    contexts: dict,
     seed: int,
     with_vlm: bool,
 ) -> list[dict]:
@@ -136,17 +178,22 @@ def diagnose_set(
     if len(paths) < k:
         logger.warning("Skipping set with too few photos", extra={"set": set_dir.name, "count": len(paths)})
         return []
+    importance, event_keyword = load_manifest(set_dir)
+    context = resolve_context(context_mode, set_dir.name, contexts, event_keyword)
+    if context is None:
+        logger.warning("Skipping set: no context text for this mode", extra={"set": set_dir.name, "context_mode": context_mode})
+        return []
     features = encode_clip_features(paths, stage0_config["clip_model"], stage0_config["clip_pretrained"])
     # One reference clustering per set so cluster coverage is comparable across modes.
     _, reference_labels = kmeans_select(features, paths, k)
 
     rows = []
     for mode in modes:
-        logger.info("Running Stage 0", extra={"set": set_dir.name, "mode": mode, "photo_count": len(paths)})
+        logger.info("Running Stage 0", extra={"set": set_dir.name, "mode": mode, "context_mode": context_mode, "photo_count": len(paths)})
         result = run_mode(mode, paths, features, stage0_config, context, seed=seed, with_vlm=with_vlm)
-        metrics = compute_metrics(result, paths, features, reference_labels)
-        write_outputs(out_root / set_dir.name / mode, paths, result, reference_labels, metrics, context)
-        rows.append({"set": set_dir.name, "photo_count": len(paths), "mode": mode, **metrics})
+        metrics = compute_metrics(result, paths, features, reference_labels, importance)
+        write_outputs(out_root / set_dir.name / context_mode / mode, paths, result, reference_labels, metrics, context)
+        rows.append({"set": set_dir.name, "photo_count": len(paths), "mode": mode, "context_mode": context_mode, **metrics})
     return rows
 
 
@@ -156,9 +203,12 @@ def merge_summary_rows(existing: list[dict], fresh: list[dict]) -> list[dict]:
     Lets a partial re-run (one set, one mode) update the summary without erasing
     the rows it did not recompute.
     """
-    by_key = {(row["set"], row["mode"]): row for row in existing}
-    by_key.update({(row["set"], row["mode"]): row for row in fresh})
-    return [by_key[key] for key in sorted(by_key)]
+    def key(row: dict) -> tuple[str, str, str]:
+        return (row["set"], row["mode"], row.get("context_mode", "none"))
+
+    by_key = {key(row): row for row in existing}
+    by_key.update({key(row): row for row in fresh})
+    return [by_key[k] for k in sorted(by_key)]
 
 
 def write_summary(summary_path: Path, fresh_rows: list[dict]) -> list[dict]:
@@ -169,16 +219,23 @@ def write_summary(summary_path: Path, fresh_rows: list[dict]) -> list[dict]:
 
 
 def print_summary(rows: list[dict]) -> None:
-    header = f"{'set':30s} {'n':>3s} {'mode':10s} {'clip_dist':>9s} {'clusters':>8s} {'relev':>6s} {'swaps':>5s}"
+    header = (
+        f"{'set':30s} {'n':>3s} {'mode':9s} {'ctx':7s} {'clip_dist':>9s} {'clusters':>8s} "
+        f"{'relev':>6s} {'swaps':>5s} {'import':>6s} {'p@k':>5s}"
+    )
     print(header)
     print("-" * len(header))
     for row in rows:
-        relevance = "-" if row["mean_relevance"] is None else f"{row['mean_relevance']:.2f}"
         print(
-            f"{row['set'][:30]:30s} {row['photo_count']:3d} {row['mode']:10s} "
+            f"{row['set'][:30]:30s} {row['photo_count']:3d} {row['mode']:9s} {row.get('context_mode', 'none'):7s} "
             f"{row['mean_pairwise_clip_distance']:9.3f} {row['cluster_coverage']:8d} "
-            f"{relevance:>6s} {row['replacement_count']:5d}"
+            f"{_fmt(row['mean_relevance']):>6s} {row['replacement_count']:5d} "
+            f"{_fmt(row.get('mean_importance')):>6s} {_fmt(row.get('precision_at_k')):>5s}"
         )
+
+
+def _fmt(value: float | None) -> str:
+    return "-" if value is None else f"{value:.2f}"
 
 
 def parse_args() -> argparse.Namespace:
@@ -188,8 +245,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--modes", default=",".join(VLM_FREE_MODES), help=f"Comma-separated subset of {ALL_MODES}")
     parser.add_argument("--config", default="configs/demo.yaml")
     parser.add_argument("--k", type=int, default=None, help="Override stage0.k from the config")
-    parser.add_argument("--contexts", default="", help="JSON file mapping set name -> user context")
+    parser.add_argument(
+        "--contexts", default="",
+        help='JSON file: set name -> {"keyword": "...", "full": "..."} (a bare string counts as "full")',
+    )
+    parser.add_argument(
+        "--context-mode", default="none", choices=CONTEXT_MODES,
+        help="none: infer theme; keyword: event label / short keywords; full: user sentence",
+    )
     parser.add_argument("--output", default="output/stage0_diag")
+    parser.add_argument(
+        "--description-cache", default="output/description_cache",
+        help="Directory caching VLM descriptions per model; descriptions are context-free, so reruns reuse them",
+    )
     parser.add_argument("--seed", type=int, default=42, help="Seed for random mode")
     parser.add_argument("--with-vlm", action="store_true", help="Describe photos even in random/clip_only")
     return parser.parse_args()
@@ -204,6 +272,7 @@ def main() -> None:
     stage0_config = dict(load_config(args.config)["stage0"])
     if args.k is not None:
         stage0_config["k"] = args.k
+    stage0_config["description_cache_dir"] = Path(args.description_cache)
     modes = [m for m in args.modes.split(",") if m]
     unknown = set(modes) - set(ALL_MODES)
     if unknown:
@@ -215,8 +284,8 @@ def main() -> None:
     rows: list[dict] = []
     for set_dir in set_dirs:
         rows += diagnose_set(
-            set_dir, modes, stage0_config, contexts.get(set_dir.name, ""), out_root,
-            seed=args.seed, with_vlm=args.with_vlm,
+            set_dir, modes, stage0_config, out_root,
+            context_mode=args.context_mode, contexts=contexts, seed=args.seed, with_vlm=args.with_vlm,
         )
     merged = write_summary(out_root / "summary.json", rows)
     print_summary(merged)

@@ -93,3 +93,16 @@ SD_PROMPT_TEMPLATE = (
     "{style_prompt}, children's storybook illustration. "
     "{scene} warm colors, detailed"
 )
+
+LLM_SELECT_TOP_K = """\
+You are choosing photos for a children's picture book about: "{context}"
+
+Below are {n} photo descriptions, numbered 1 to {n}:
+
+{descriptions}
+
+Choose the {k} photos that together best tell this story. Each should be clearly \
+relevant to the theme, and together they should cover different moments rather than \
+repeat the same scene.
+
+Reply with ONLY a JSON array of {k} distinct photo numbers, e.g. [3, 7, 12, 15]."""

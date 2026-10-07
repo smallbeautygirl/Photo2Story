@@ -35,3 +35,15 @@ def test_merge_with_no_existing_summary_keeps_fresh_rows_sorted():
         {"set": "A", "mode": "random"},
         {"set": "B", "mode": "random"},
     ]
+
+
+def test_rows_for_different_context_modes_are_kept_apart():
+    existing = [{"set": "A", "mode": "hybrid", "context_mode": "none", "swaps": 0}]
+    fresh = [{"set": "A", "mode": "hybrid", "context_mode": "keyword", "swaps": 2}]
+
+    merged = merge_summary_rows(existing, fresh)
+
+    assert merged == [
+        {"set": "A", "mode": "hybrid", "context_mode": "keyword", "swaps": 2},
+        {"set": "A", "mode": "hybrid", "context_mode": "none", "swaps": 0},
+    ]

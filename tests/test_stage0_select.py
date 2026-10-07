@@ -184,7 +184,7 @@ def test_run_stage0_hybrid_reports_scores_clusters_and_replacements(
 
     mocker.patch(
         "src.stages.stage0_select.describe_photos_with_vlm",
-        side_effect=lambda paths, model: {p: f"desc {p}" for p in paths},
+        side_effect=lambda paths, model, **kw: {p: f"desc {p}" for p in paths},
     )
     scoring_calls: list[list[str]] = []
 
@@ -230,3 +230,70 @@ def test_sort_by_exif_orders_heic_by_its_timestamp(tmp_path):
     earlier_heic = save_with_timestamp(tmp_path / "earlier.heic", "2026:06:07 11:31:28")
 
     assert sort_by_exif([later_jpg, earlier_heic]) == [earlier_heic, later_jpg]
+
+
+def test_select_top_k_with_llm_returns_the_photos_the_llm_named(tmp_images, mocker):
+    """llm_only is listwise: the LLM sees every description and names k photos by number."""
+    from src.stages.stage0_select import select_top_k_with_llm
+
+    descriptions = {p: f"desc {i}" for i, p in enumerate(tmp_images)}
+    mocker.patch("src.stages.stage0_llm.generate_text", return_value="[3, 1, 5]")
+
+    chosen = select_top_k_with_llm(descriptions, "beach holiday", k=3, model="m", seed=0)
+
+    assert chosen == [tmp_images[2], tmp_images[0], tmp_images[4]]
+
+
+def test_select_top_k_with_llm_fills_invalid_or_missing_picks_deterministically(tmp_images, mocker):
+    """Out-of-range or duplicate numbers are dropped and the gap is filled by a seeded
+    random draw, so a flaky reply never yields fewer than k photos and reruns agree."""
+    from src.stages.stage0_select import select_top_k_with_llm
+
+    descriptions = {p: f"desc {i}" for i, p in enumerate(tmp_images)}
+    mocker.patch("src.stages.stage0_llm.generate_text", return_value="[2, 2, 99]")
+
+    first = select_top_k_with_llm(descriptions, "ctx", k=3, model="m", seed=7)
+    second = select_top_k_with_llm(descriptions, "ctx", k=3, model="m", seed=7)
+
+    assert first == second
+    assert len(first) == 3 and len(set(first)) == 3
+    assert first[0] == tmp_images[1]
+    assert all(p in tmp_images for p in first)
+
+
+def test_run_stage0_llm_only_does_not_fall_back_to_filename_order(tmp_images, demo_config, mocker):
+    """With every photo scoring 1.0, the old top-k sort picked the first filenames;
+    the listwise pick must be what the LLM chose, and all descriptions are reported."""
+    cfg = dict(demo_config["stage0"], mode="llm_only", k=4)
+    mocker.patch(
+        "src.stages.stage0_select.describe_photos_with_vlm",
+        side_effect=lambda paths, model, **kw: {p: f"desc {p}" for p in paths},
+    )
+    mocker.patch(
+        "src.stages.stage0_select.score_relevance_with_llm",
+        side_effect=lambda descs, ctx, model: {p: 1.0 for p in descs},
+    )
+    mocker.patch("src.stages.stage0_llm.generate_text", return_value="[5, 2, 4, 3]")
+
+    result = run_stage0(tmp_images, context="beach holiday", config=cfg)
+
+    assert set(result["selected_paths"]) == {tmp_images[4], tmp_images[1], tmp_images[3], tmp_images[2]}
+    assert set(result["diagnostics"]["descriptions"]) == set(tmp_images)
+
+
+def test_describe_photos_reuses_cached_descriptions(tmp_images, tmp_path, mocker):
+    """VLM descriptions are deterministic and context-free, so a second run over the same
+    photos must come from the on-disk cache instead of calling the model again."""
+    from src.stages.stage0_select import describe_photos_with_vlm
+
+    describe = mocker.patch(
+        "src.stages.stage0_llm.describe_image", side_effect=lambda p, prompt, m: f"desc of {p}"
+    )
+    cache_dir = tmp_path / "cache"
+
+    first = describe_photos_with_vlm(tmp_images[:3], "m", cache_dir=cache_dir)
+    second = describe_photos_with_vlm(tmp_images[:4], "m", cache_dir=cache_dir)
+
+    assert first == {p: f"desc of {p}" for p in tmp_images[:3]}
+    assert second == {p: f"desc of {p}" for p in tmp_images[:4]}
+    assert describe.call_count == 4  # 3 on the first run, only the new photo on the second

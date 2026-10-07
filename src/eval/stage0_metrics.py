@@ -26,6 +26,29 @@ def cluster_coverage(cluster_labels: dict[str, int], selected_paths: list[str]) 
     return len({cluster_labels[path] for path in selected_paths if path in cluster_labels})
 
 
+def mean_importance(importance: dict[str, float], selected_paths: list[str]) -> float | None:
+    """Mean human-annotated importance (e.g. CUFED) of the selected photos; None if unknown."""
+    known = [importance[path] for path in selected_paths if path in importance]
+    if not known:
+        return None
+    return float(np.mean(known))
+
+
+def precision_at_k(importance: dict[str, float], selected_paths: list[str]) -> float | None:
+    """Share of selected photos whose importance reaches the k-th highest in the album (k = |selected|).
+
+    Annotators give many photos the same score, so a hard top-k set is ill-defined; a
+    photo tying the k-th best score counts as a hit.
+    """
+    known = [path for path in selected_paths if path in importance]
+    if not known:
+        return None
+    k = len(selected_paths)
+    threshold = sorted(importance.values(), reverse=True)[min(k, len(importance)) - 1]
+    hits = sum(importance[path] >= threshold for path in known)
+    return hits / k
+
+
 def mean_relevance(scores: dict[str, float], selected_paths: list[str]) -> float | None:
     """Mean LLM relevance score of the selected photos; None if none of them were scored."""
     selected_scores = [scores[path] for path in selected_paths if path in scores]

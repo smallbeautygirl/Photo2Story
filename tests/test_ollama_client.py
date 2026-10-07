@@ -73,3 +73,12 @@ def test_generate_text_without_schema_sends_no_format(captured_post):
     assert "format" not in bodies[0]
     assert bodies[0]["think"] is True
     assert bodies[0]["options"]["num_predict"] == 8
+
+
+def test_generate_text_with_int_list_schema_requests_integer_array(captured_post):
+    bodies, fake_post = captured_post
+    fake_post.reply = "[3, 1]"
+
+    ollama_client.generate_text("Pick two.", "gemma4:31b", response_schema=list[int])
+
+    assert bodies[0]["format"] == {"type": "array", "items": {"type": "integer"}}

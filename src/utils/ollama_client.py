@@ -30,6 +30,7 @@ REQUEST_TIMEOUT_S = 300.0
 _PASSTHROUGH_SUFFIXES = {".jpg", ".jpeg", ".png"}
 _JSON_SCHEMA_BY_TYPE: dict[object, dict] = {
     list[str]: {"type": "array", "items": {"type": "string"}},
+    list[int]: {"type": "array", "items": {"type": "integer"}},
 }
 
 

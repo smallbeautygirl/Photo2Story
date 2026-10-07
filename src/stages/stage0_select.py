@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import logging
 import random
-import re
 from datetime import datetime
 
 import numpy as np
@@ -10,11 +9,12 @@ import pillow_heif
 from PIL import Image
 from sklearn.cluster import KMeans
 
-from src.utils.llm_client import describe_image, generate_text
-from src.utils.prompt_templates import (
-    LLM_INFER_THEME,
-    LLM_SCORE_RELEVANCE,
-    VLM_DESCRIBE_PHOTO,
+from src.stages.stage0_llm import (
+    _parse_score,  # re-exported for tests
+    describe_photos_with_vlm,
+    infer_theme_from_descriptions,
+    score_relevance_with_llm,
+    select_top_k_with_llm,
 )
 
 logger = logging.getLogger(__name__)
@@ -24,13 +24,11 @@ logger = logging.getLogger(__name__)
 # Image.open() to work on them directly.
 pillow_heif.register_heif_opener()
 
-_SCORE_RE = re.compile(r"[-+]?\d*\.?\d+")
 # EXIF tag ids (see the EXIF 2.3 spec): the Exif sub-IFD pointer, DateTimeOriginal, DateTime.
 _EXIF_IFD_TAG = 0x8769
 _DATETIME_ORIGINAL_TAG = 36867
 _DATETIME_TAG = 306
 _LOW_SCORE_THRESHOLD = 0.4
-_DEFAULT_RELEVANCE = 0.5
 
 
 def encode_clip_features(image_paths: list[str], model_name: str, pretrained: str) -> np.ndarray:
@@ -90,68 +88,6 @@ def clip_cluster_select(
     return selected
 
 
-def describe_photos_with_vlm(image_paths: list[str], model_name: str) -> dict[str, str]:
-    """Phase B step 1: Generate a text description for each photo via Gemini VLM."""
-    logger.info(
-        "Describing photos with VLM",
-        extra={"model": model_name, "count": len(image_paths)},
-    )
-    return {
-        path: describe_image(path, VLM_DESCRIBE_PHOTO, model_name)
-        for path in image_paths
-    }
-
-
-def _parse_score(raw: str) -> float | None:
-    """Extract first decimal number in [0, 1] from LLM output. Returns None if unparseable."""
-    match = _SCORE_RE.search(raw)
-    if not match:
-        return None
-    try:
-        return max(0.0, min(1.0, float(match.group(0))))
-    except ValueError:
-        return None
-
-
-def score_relevance_with_llm(
-    descriptions: dict[str, str], context: str, model_name: str
-) -> dict[str, float]:
-    """Phase B step 2: Score each description's relevance to user context."""
-    logger.info(
-        "Scoring photo relevance with LLM",
-        extra={"model": model_name, "count": len(descriptions), "context": context},
-    )
-    scores: dict[str, float] = {}
-    for path, desc in descriptions.items():
-        prompt = LLM_SCORE_RELEVANCE.format(context=context, description=desc)
-        raw = generate_text(prompt, model_name, max_output_tokens=8)
-        parsed = _parse_score(raw)
-        if parsed is None:
-            logger.warning(
-                "Could not parse relevance score; defaulting to 0.5",
-                extra={"path": path, "raw": raw[:64]},
-            )
-            parsed = _DEFAULT_RELEVANCE
-        scores[path] = parsed
-    return scores
-
-
-def infer_theme_from_descriptions(
-    descriptions: dict[str, str], model_name: str
-) -> str:
-    """Infer a short theme from VLM descriptions; used when user context is empty."""
-    if not descriptions:
-        return ""
-    desc_block = "\n".join(f"- {d}" for d in descriptions.values())
-    prompt = LLM_INFER_THEME.format(k=len(descriptions), descriptions=desc_block)
-    logger.info(
-        "Inferring theme from photo descriptions",
-        extra={"model": model_name, "count": len(descriptions)},
-    )
-    raw = generate_text(prompt, model_name, max_output_tokens=32)
-    return raw.strip().strip('"').strip("'")
-
-
 def sort_by_exif(image_paths: list[str]) -> list[str]:
     """Phase C: Sort by EXIF DateTimeOriginal; images without EXIF go to end."""
     def get_dt(p: str) -> datetime | None:
@@ -188,10 +124,13 @@ def _replace_low_score_candidates(
     image_paths: list[str],
     effective_context: str,
     config: dict,
+    *,
+    all_descriptions: dict[str, str],
 ) -> list[dict[str, str | float]]:
     """In place: swap any candidate scoring < threshold with best-scoring pool replacement.
 
-    Pool scores are merged into `scores`; returns one record per swap made.
+    Pool scores are merged into `scores` and pool descriptions into `all_descriptions`;
+    returns one record per swap made.
     """
     low_score_paths = [p for p in candidates if scores.get(p, 1.0) < _LOW_SCORE_THRESHOLD]
     if not low_score_paths:
@@ -201,9 +140,12 @@ def _replace_low_score_candidates(
     if not pool_paths:
         return []
 
-    pool_descs = describe_photos_with_vlm(pool_paths, config["vlm_model"])
+    pool_descs = describe_photos_with_vlm(
+        pool_paths, config["vlm_model"], cache_dir=config.get("description_cache_dir")
+    )
     pool_scores = score_relevance_with_llm(pool_descs, effective_context, config["llm_model"])
     scores.update(pool_scores)
+    all_descriptions.update(pool_descs)
 
     replacements: list[dict[str, str | float]] = []
     for bad_path in low_score_paths:
@@ -249,6 +191,7 @@ def run_stage0(image_paths: list[str], context: str, config: dict) -> dict:
     cluster_labels: dict[str, int] = {}
     scores: dict[str, float] = {}
     replacements: list[dict[str, str | float]] = []
+    all_descriptions: dict[str, str] = {}
 
     # Phase A: candidate selection
     if mode == "random":
@@ -257,18 +200,25 @@ def run_stage0(image_paths: list[str], context: str, config: dict) -> dict:
         features = encode_clip_features(image_paths, config["clip_model"], config["clip_pretrained"])
         candidates, cluster_labels = kmeans_select(features, image_paths, k)
     elif mode == "llm_only":
-        all_descs = describe_photos_with_vlm(image_paths, config["vlm_model"])
-        scoring_ctx = context or infer_theme_from_descriptions(all_descs, config["llm_model"])
-        scores = score_relevance_with_llm(all_descs, scoring_ctx, config["llm_model"])
-        sorted_paths = sorted(scores, key=lambda p: scores[p], reverse=True)
-        candidates = sorted_paths[:k]
-        descriptions = {p: all_descs[p] for p in candidates}
+        all_descriptions = describe_photos_with_vlm(
+            image_paths, config["vlm_model"], cache_dir=config.get("description_cache_dir")
+        )
+        scoring_ctx = context or infer_theme_from_descriptions(all_descriptions, config["llm_model"])
+        # Per-photo scores are kept for diagnostics only; selection is the listwise call.
+        scores = score_relevance_with_llm(all_descriptions, scoring_ctx, config["llm_model"])
+        candidates = select_top_k_with_llm(
+            all_descriptions, scoring_ctx, k=k, model=config["llm_model"], seed=config.get("seed", 42)
+        )
+        descriptions = {p: all_descriptions[p] for p in candidates}
     else:
         raise ValueError(f"Unknown stage0 mode: {mode}")
 
     # Phase B: describe candidates with VLM (skip if llm_only already did this)
     if mode != "llm_only":
-        descriptions = describe_photos_with_vlm(candidates, config["vlm_model"])
+        descriptions = describe_photos_with_vlm(
+            candidates, config["vlm_model"], cache_dir=config.get("description_cache_dir")
+        )
+        all_descriptions.update(descriptions)
 
     # Determine effective context: fall back to LLM-inferred theme when user context is empty.
     # Why: hybrid scoring + downstream stages need a non-empty topic to ground the story.
@@ -284,7 +234,8 @@ def run_stage0(image_paths: list[str], context: str, config: dict) -> dict:
     if mode == "hybrid" and effective_context:
         scores = score_relevance_with_llm(descriptions, effective_context, config["llm_model"])
         replacements = _replace_low_score_candidates(
-            candidates, descriptions, scores, image_paths, effective_context, config
+            candidates, descriptions, scores, image_paths, effective_context, config,
+            all_descriptions=all_descriptions,
         )
 
     # Phase C: order by EXIF timestamp
@@ -310,5 +261,6 @@ def run_stage0(image_paths: list[str], context: str, config: dict) -> dict:
             "cluster_labels": cluster_labels,
             "scores": scores,
             "replacements": replacements,
+            "descriptions": all_descriptions,
         },
     }
