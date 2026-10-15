@@ -28,10 +28,6 @@ REQUEST_TIMEOUT_S = 300.0
 # Ollama decodes images with Go's image libraries, which do not read HEIC;
 # anything outside this set is re-encoded as JPEG before upload.
 _PASSTHROUGH_SUFFIXES = {".jpg", ".jpeg", ".png"}
-_JSON_SCHEMA_BY_TYPE: dict[object, dict] = {
-    list[str]: {"type": "array", "items": {"type": "string"}},
-    list[int]: {"type": "array", "items": {"type": "integer"}},
-}
 
 
 def _host() -> str:
@@ -44,7 +40,6 @@ def _chat(
     *,
     max_output_tokens: int,
     thinking_budget: int,
-    response_format: dict | str | None = None,
 ) -> str:
     body: dict = {
         "model": model,
@@ -53,8 +48,6 @@ def _chat(
         "think": thinking_budget > 0,
         "options": {"temperature": 0.0, "num_predict": max_output_tokens},
     }
-    if response_format is not None:
-        body["format"] = response_format
     response = httpx.post(f"{_host()}/api/chat", json=body, timeout=REQUEST_TIMEOUT_S)
     response.raise_for_status()
     return (response.json()["message"]["content"] or "").strip()
@@ -67,16 +60,21 @@ def generate_text(
     response_schema: type | None = None,
     thinking_budget: int = 0,
 ) -> str:
-    """Single-turn text generation; same contract as `gemini_client.generate_text`."""
-    response_format: dict | str | None = None
+    """Single-turn text generation; same contract as `gemini_client.generate_text`.
+
+    `response_schema` is accepted for interface parity but deliberately not turned into
+    Ollama's `format` grammar: grammar-constrained decoding hangs Gemma on CJK output
+    (a 4-page Chinese story ran past 180 s and blocked the shared server, while the same
+    prompt without `format` returned valid fenced JSON in 53 s). Callers already state
+    the JSON shape in the prompt and parse fenced replies.
+    """
     if response_schema is not None:
-        response_format = _JSON_SCHEMA_BY_TYPE.get(response_schema, "json")
+        logger.debug("Ignoring response_schema for Ollama; shape is enforced by prompt + parser")
     return _chat(
         model,
         [{"role": "user", "content": prompt}],
         max_output_tokens=max_output_tokens,
         thinking_budget=thinking_budget,
-        response_format=response_format,
     )
 
 

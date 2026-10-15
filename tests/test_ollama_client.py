@@ -55,13 +55,17 @@ def test_describe_image_sends_base64_image_with_thinking_off(tmp_path, captured_
     assert text == "A toddler at a fish tank."
 
 
-def test_generate_text_with_list_schema_requests_json_array(captured_post):
+def test_generate_text_with_a_schema_never_sends_a_format_grammar(captured_post):
+    """Ollama's grammar-constrained output hangs Gemma on CJK text (a 4-page Chinese story
+    ran past 180 s and blocked the shared server; the same prompt without `format`
+    returned valid fenced JSON in 53 s). Schemas are enforced by the prompt and the
+    callers' parsers instead, so the request must carry no `format` at all."""
     bodies, fake_post = captured_post
     fake_post.reply = '```json\n["a", "b"]\n```'
 
     text = ollama_client.generate_text("Two words.", "gemma4:31b", response_schema=list[str])
 
-    assert bodies[0]["format"] == {"type": "array", "items": {"type": "string"}}
+    assert "format" not in bodies[0]
     assert json.loads(text.strip("`").removeprefix("json").strip()) == ["a", "b"]
 
 
@@ -75,10 +79,10 @@ def test_generate_text_without_schema_sends_no_format(captured_post):
     assert bodies[0]["options"]["num_predict"] == 8
 
 
-def test_generate_text_with_int_list_schema_requests_integer_array(captured_post):
+def test_generate_text_with_int_list_schema_also_sends_no_format(captured_post):
     bodies, fake_post = captured_post
     fake_post.reply = "[3, 1]"
 
     ollama_client.generate_text("Pick two.", "gemma4:31b", response_schema=list[int])
 
-    assert bodies[0]["format"] == {"type": "array", "items": {"type": "integer"}}
+    assert "format" not in bodies[0]
