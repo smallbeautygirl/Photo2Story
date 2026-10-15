@@ -44,7 +44,12 @@ function runs(text, base = {}) {
     if (m.index > last) out.push(new TextRun({ ...base, text: text.slice(last, m.index) }));
     const t = m[0];
     if (t.startsWith("**")) out.push(new TextRun({ ...base, text: t.slice(2, -2), bold: true }));
-    else if (t.startsWith("`")) out.push(new TextRun({ ...base, text: t.slice(1, -1), font: "Consolas" }));
+    else if (t.startsWith("`")) {
+      const inner = t.slice(1, -1);
+      // The chapters write citation placeholders inside backticks; keep them highlighted, not monospace.
+      if (inner.startsWith("[CITATION NEEDED")) out.push(new TextRun({ ...base, text: inner, highlight: "yellow" }));
+      else out.push(new TextRun({ ...base, text: inner, font: "Consolas" }));
+    }
     else out.push(new TextRun({ ...base, text: t, highlight: "yellow" }));
     last = m.index + t.length;
   }
