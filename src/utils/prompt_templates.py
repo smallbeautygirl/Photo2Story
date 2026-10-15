@@ -48,7 +48,7 @@ In 2-3 sentences, describe the narrative arc: what happened first, what was the 
 # "standard" preserves the original 2-3 sentence behaviour for ablation baselines.
 READING_LEVELS = {
     "simple": {
-        "age": "ages 3 to 5",
+        "age": "ages 3 to 6",
         "sentences": "exactly one short sentence",
         "length_hint": "at most ~24 characters for Chinese/Japanese, or ~12 words for English",
         "vocab": (
