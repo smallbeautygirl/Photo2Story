@@ -297,3 +297,38 @@ def test_describe_photos_reuses_cached_descriptions(tmp_images, tmp_path, mocker
     assert first == {p: f"desc of {p}" for p in tmp_images[:3]}
     assert second == {p: f"desc of {p}" for p in tmp_images[:4]}
     assert describe.call_count == 4  # 3 on the first run, only the new photo on the second
+
+
+def test_run_stage0_hybrid_v2_lets_the_llm_pick_one_photo_per_cluster(tmp_images, demo_config, mocker):
+    """hybrid_v2: CLIP clusters define the scenes to cover; within each cluster the LLM
+    picks the photo, listwise, from that cluster's descriptions only. No centroid, no
+    per-photo scores, no threshold."""
+    cfg = dict(demo_config["stage0"], mode="hybrid_v2", k=3)
+    # Photos 0 and 1 are near-identical, so k-means (k=3) must put them in one cluster.
+    features = np.array([[1, 0, 0], [0.99, 0.01, 0], [0, 1, 0], [0, 0, 1], [0, 0.99, 0.01]], dtype=np.float32)
+    mock_oc = _make_open_clip_mock(features / np.linalg.norm(features, axis=1, keepdims=True))
+
+    mocker.patch(
+        "src.stages.stage0_select.describe_photos_with_vlm",
+        side_effect=lambda paths, model, **kw: {p: f"desc {p}" for p in paths},
+    )
+    pick_calls: list[list[str]] = []
+
+    def fake_pick(descriptions, context, *, k, model, seed):
+        pick_calls.append(list(descriptions))
+        return [sorted(descriptions)[-1]]  # deterministic: last path in the cluster
+
+    mocker.patch("src.stages.stage0_select.select_top_k_with_llm", side_effect=fake_pick)
+    mocker.patch("src.stages.stage0_select.score_relevance_with_llm", side_effect=AssertionError("no per-photo scoring in v2"))
+
+    with patch.dict(sys.modules, {"open_clip": mock_oc}):
+        result = run_stage0(tmp_images, context="beach holiday", config=cfg)
+
+    labels = result["diagnostics"]["cluster_labels"]
+    assert set(labels) == set(tmp_images)
+    assert len(result["selected_paths"]) == 3
+    assert len({labels[p] for p in result["selected_paths"]}) == 3  # one per cluster
+    for call in pick_calls:  # each listwise call saw exactly one cluster
+        assert len({labels[p] for p in call}) == 1 and len(call) > 1
+    assert set(result["diagnostics"]["descriptions"]) == set(tmp_images)
+    assert result["diagnostics"]["scores"] == {} and result["diagnostics"]["replacements"] == []

@@ -168,6 +168,30 @@ def _replace_low_score_candidates(
     return replacements
 
 
+def _pick_one_per_cluster(
+    all_descriptions: dict[str, str], cluster_labels: dict[str, int], context: str, config: dict
+) -> list[str]:
+    """hybrid_v2 Phase A: CLIP clusters fix *which scenes* the book covers; the LLM
+    decides *which photo* stands for each scene, listwise, from that cluster's
+    descriptions only. Replaces the centroid pick, whose "most typical" photo was often
+    the blurriest, and the per-photo 0-1 score filter, which saturated at 1.0.
+    """
+    picked: list[str] = []
+    for cluster_id in sorted(set(cluster_labels.values())):
+        members = [p for p, label in cluster_labels.items() if label == cluster_id]
+        if len(members) == 1:
+            picked.append(members[0])
+            continue
+        picked += select_top_k_with_llm(
+            {p: all_descriptions[p] for p in members},
+            context,
+            k=1,
+            model=config["llm_model"],
+            seed=config.get("seed", 42),
+        )
+    return picked
+
+
 def run_stage0(image_paths: list[str], context: str, config: dict) -> dict:
     """
     Full Stage 0: select K photos, describe them, order by time.
@@ -192,6 +216,7 @@ def run_stage0(image_paths: list[str], context: str, config: dict) -> dict:
     scores: dict[str, float] = {}
     replacements: list[dict[str, str | float]] = []
     all_descriptions: dict[str, str] = {}
+    inferred_context = ""
 
     # Phase A: candidate selection
     if mode == "random":
@@ -203,18 +228,27 @@ def run_stage0(image_paths: list[str], context: str, config: dict) -> dict:
         all_descriptions = describe_photos_with_vlm(
             image_paths, config["vlm_model"], cache_dir=config.get("description_cache_dir")
         )
-        scoring_ctx = context or infer_theme_from_descriptions(all_descriptions, config["llm_model"])
+        inferred_context = context or infer_theme_from_descriptions(all_descriptions, config["llm_model"])
         # Per-photo scores are kept for diagnostics only; selection is the listwise call.
-        scores = score_relevance_with_llm(all_descriptions, scoring_ctx, config["llm_model"])
+        scores = score_relevance_with_llm(all_descriptions, inferred_context, config["llm_model"])
         candidates = select_top_k_with_llm(
-            all_descriptions, scoring_ctx, k=k, model=config["llm_model"], seed=config.get("seed", 42)
+            all_descriptions, inferred_context, k=k, model=config["llm_model"], seed=config.get("seed", 42)
         )
+        descriptions = {p: all_descriptions[p] for p in candidates}
+    elif mode == "hybrid_v2":
+        features = encode_clip_features(image_paths, config["clip_model"], config["clip_pretrained"])
+        _, cluster_labels = kmeans_select(features, image_paths, k)
+        all_descriptions = describe_photos_with_vlm(
+            image_paths, config["vlm_model"], cache_dir=config.get("description_cache_dir")
+        )
+        inferred_context = context or infer_theme_from_descriptions(all_descriptions, config["llm_model"])
+        candidates = _pick_one_per_cluster(all_descriptions, cluster_labels, inferred_context, config)
         descriptions = {p: all_descriptions[p] for p in candidates}
     else:
         raise ValueError(f"Unknown stage0 mode: {mode}")
 
     # Phase B: describe candidates with VLM (skip if llm_only already did this)
-    if mode != "llm_only":
+    if mode not in ("llm_only", "hybrid_v2"):
         descriptions = describe_photos_with_vlm(
             candidates, config["vlm_model"], cache_dir=config.get("description_cache_dir")
         )
@@ -222,7 +256,9 @@ def run_stage0(image_paths: list[str], context: str, config: dict) -> dict:
 
     # Determine effective context: fall back to LLM-inferred theme when user context is empty.
     # Why: hybrid scoring + downstream stages need a non-empty topic to ground the story.
-    effective_context = context
+    # Modes that described every photo already inferred it from all of them; the others
+    # only have the candidates' descriptions to go on.
+    effective_context = context or inferred_context
     if not effective_context and descriptions:
         effective_context = infer_theme_from_descriptions(descriptions, config["llm_model"])
         logger.info(

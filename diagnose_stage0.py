@@ -37,7 +37,7 @@ from src.stages.stage0_select import (
 logger = logging.getLogger(__name__)
 
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".heic", ".heif"}
-ALL_MODES = ("random", "clip_only", "llm_only", "hybrid")
+ALL_MODES = ("random", "clip_only", "llm_only", "hybrid", "hybrid_v2")
 VLM_FREE_MODES = ("random", "clip_only")
 CONTEXT_MODES = ("none", "keyword", "full")
 MANIFEST_NAME = "manifest.json"

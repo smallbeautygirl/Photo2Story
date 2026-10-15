@@ -4,7 +4,7 @@ from pathlib import Path
 
 
 class Stage0Config(TypedDict):
-    mode: Literal["random", "clip_only", "llm_only", "hybrid"]
+    mode: Literal["random", "clip_only", "llm_only", "hybrid", "hybrid_v2"]
     clip_model: str
     clip_pretrained: str
     vlm_model: str
@@ -44,7 +44,7 @@ class PipelineConfig(TypedDict):
     stage3: Stage3Config
 
 
-_VALID_MODES = {"random", "clip_only", "llm_only", "hybrid"}
+_VALID_MODES = {"random", "clip_only", "llm_only", "hybrid", "hybrid_v2"}
 _VALID_CONTEXT_MODES = {"none", "keyword", "full"}
 
 
