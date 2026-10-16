@@ -45,3 +45,37 @@ def test_stage3_accepts_picture_book_layout(tmp_path):
     loaded = load_config(p)
 
     assert loaded["stage3"]["page_layout"] == "picture_book_spread"
+
+
+def _write_config(tmp_path, stage2_extra: dict) -> Path:
+    import yaml
+
+    cfg = {
+        "stage0": {"mode": "random", "clip_model": "x", "clip_pretrained": "x",
+                   "vlm_model": "x", "llm_model": "x", "k": 2},
+        "stage1": {"model": "x", "context_mode": "none", "use_causal_inference": False},
+        "stage2": {"base_model": "x", "use_ipadapter": False, "use_stylealigned": False,
+                   "style_image_path": None, **stage2_extra},
+        "stage3": {"output_format": "pdf", "page_layout": "picture_book_spread"},
+    }
+    p = tmp_path / "cfg.yaml"
+    p.write_text(yaml.dump(cfg))
+    return p
+
+
+def test_character_reference_defaults_to_none_when_omitted(tmp_path):
+    loaded = load_config(_write_config(tmp_path, {}))
+
+    assert loaded["stage2"]["character_reference"] == "none"
+
+
+@pytest.mark.parametrize("mode", ["none", "previous_spread", "source_photo"])
+def test_character_reference_accepts_each_condition(tmp_path, mode):
+    loaded = load_config(_write_config(tmp_path, {"character_reference": mode}))
+
+    assert loaded["stage2"]["character_reference"] == mode
+
+
+def test_character_reference_rejects_unknown_condition(tmp_path):
+    with pytest.raises(ValueError, match="stage2.character_reference"):
+        load_config(_write_config(tmp_path, {"character_reference": "anchor_photo"}))

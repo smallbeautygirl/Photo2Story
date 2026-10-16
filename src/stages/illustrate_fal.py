@@ -10,14 +10,16 @@ Auth: `FAL_KEY` is read from the repo-root `.env` (env vars take precedence).
 
 from __future__ import annotations
 
+import hashlib
 import io
+import json
 import logging
 import os
 import urllib.request
 from pathlib import Path
 
 from dotenv import load_dotenv
-from PIL import Image
+from PIL import Image, ImageOps
 
 from src.utils.prompt_templates import SD_PROMPT_TEMPLATE
 from src.utils.styles import StylePreset, resolve_style
@@ -30,6 +32,9 @@ load_dotenv(Path(__file__).resolve().parents[2] / ".env", override=False)
 # Base FLUX.1-dev for plain styles; the LoRA runner when a preset ships one.
 FAL_BASE_ENDPOINT = "fal-ai/flux/dev"
 FAL_LORA_ENDPOINT = "fal-ai/flux-lora"
+# Image-conditioned FLUX.1 Kontext (dev) runner; takes one reference image plus
+# the same style LoRAs. Used when `stage2.character_reference` is not "none".
+FAL_KONTEXT_ENDPOINT = "fal-ai/flux-kontext-lora"
 
 # FLUX.1-dev sampling defaults: low CFG, no negative prompt.
 INFERENCE_STEPS = 28
@@ -59,6 +64,21 @@ ANATOMY_QUALITY_HINT = (
 # reinforcement is the only lever available here too.
 TEXT_QUALITY_HINT = "plain signage without legible text, no watermark, no signature"
 
+# Kontext reads the prompt as an edit instruction for the reference image, so
+# a bare scene description risks a near-copy of the reference. Each condition
+# states what the reference is for; the rest of the prompt is unchanged.
+PREVIOUS_SPREAD_INSTRUCTION = (
+    "Draw a new scene featuring the same characters as in the reference image, "
+    "keeping their appearance. Scene:"
+)
+SOURCE_PHOTO_INSTRUCTION = (
+    "Redraw this photo as an illustration, keeping the people's appearance. Scene:"
+)
+REFERENCE_INSTRUCTIONS = {
+    "previous_spread": PREVIOUS_SPREAD_INSTRUCTION,
+    "source_photo": SOURCE_PHOTO_INSTRUCTION,
+}
+
 # FLUX occasionally returns an all-black frame (a NaN glitch on a bad seed).
 # Re-running picks a fresh seed, so retry a few times before giving up.
 MAX_ATTEMPTS = 3
@@ -77,7 +97,7 @@ def _is_blank(image_bytes: bytes) -> bool:
     return max(channel_max for _, channel_max in extrema) <= BLANK_MAX_LEVEL
 
 
-def _build_character_reference(descriptions: list[str]) -> str:
+def _build_character_description(descriptions: list[str]) -> str:
     """Combine all photo descriptions into one continuity string, deduped and
     capped, so every spread's prompt carries the same characters/setting.
 
@@ -96,7 +116,7 @@ def _build_character_reference(descriptions: list[str]) -> str:
     return combined
 
 
-def _build_prompt(scene: str, preset: StylePreset, character_ref: str = "") -> str:
+def _build_prompt(scene: str, preset: StylePreset, character_description: str = "") -> str:
     """Compose the FLUX prompt.
 
     FLUX uses a T5 encoder (~512 tokens), so unlike the SD 1.5 path we do not trim
@@ -104,8 +124,8 @@ def _build_prompt(scene: str, preset: StylePreset, character_ref: str = "") -> s
     fragment for presets that have not been tuned for FLUX yet. Some LoRAs also
     require a trailing trigger sentence, appended via flux_prompt_suffix.
 
-    `character_ref`, when given, is a book-wide continuity string (see
-    `_build_character_reference`) appended so recurring characters/settings stay
+    `character_description`, when given, is a book-wide continuity string (see
+    `_build_character_description`) appended so recurring characters/settings stay
     descriptively consistent across independently generated spreads.
     """
     style_prompt = preset.flux_prompt or preset.sd_prompt
@@ -113,8 +133,10 @@ def _build_prompt(scene: str, preset: StylePreset, character_ref: str = "") -> s
     if preset.flux_prompt_suffix:
         prompt = f"{prompt} {preset.flux_prompt_suffix}"
     prompt = f"{prompt} {ANATOMY_QUALITY_HINT}, {TEXT_QUALITY_HINT}."
-    if character_ref:
-        prompt = f"{prompt} Recurring characters and setting across the book: {character_ref}."
+    if character_description:
+        prompt = (
+            f"{prompt} Recurring characters and setting across the book: {character_description}."
+        )
     return prompt
 
 
@@ -123,16 +145,25 @@ def generate_illustrations_fal(
     style: str,
     config: dict,
     output_dir: str,
+    source_photo_paths: list[str] | None = None,
 ) -> list[str]:
     """Generate one illustration per page via fal.ai hosted FLUX.1-dev.
 
-    Mirrors `generate_illustrations` (the local SD 1.5 backend); `config` is
-    accepted for signature parity but the fal path needs no model fields from it.
+    Mirrors `generate_illustrations` (the local SD 1.5 backend). The only config
+    field read is `character_reference`: "previous_spread" conditions each
+    spread after the first on the spread before it, "source_photo" conditions
+    every spread on its own entry in `source_photo_paths` (one per scene).
     """
     import fal_client
 
     if not os.environ.get("FAL_KEY"):
         raise IllustrationError("FAL_KEY is not set; cannot reach the fal image backend")
+
+    reference_mode = config.get("character_reference", "none")
+    if reference_mode == "source_photo" and source_photo_paths is None:
+        raise IllustrationError("character_reference 'source_photo' needs source_photo_paths")
+    if source_photo_paths is not None and len(source_photo_paths) != len(scenes):
+        raise IllustrationError("source_photo_paths must hold exactly one photo per scene")
 
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
@@ -149,32 +180,117 @@ def generate_illustrations_fal(
         },
     )
 
-    character_ref = _build_character_reference(scenes)
+    character_description = _build_character_description(scenes)
     saved_paths: list[str] = []
+    seeds_used: dict[str, int] = {}
     for i, scene in enumerate(scenes):
-        arguments: dict = {
-            "prompt": _build_prompt(scene, preset, character_ref),
-            "image_size": SPREAD_IMAGE_SIZE,
-            "num_inference_steps": INFERENCE_STEPS,
-            "guidance_scale": GUIDANCE_SCALE,
-            "num_images": 1,
-            "enable_safety_checker": False,
-        }
-        if preset.flux_lora:
-            arguments["loras"] = [{"path": preset.flux_lora, "scale": LORA_SCALE}]
+        arguments = _base_arguments(_build_prompt(scene, preset, character_description), preset)
+        if source_photo_paths is not None:
+            arguments["seed"] = _page_seed(Path(source_photo_paths[i]), i)
+        page_endpoint = endpoint
+        reference_path = _reference_image_path(
+            reference_mode, i, saved_paths, source_photo_paths, output_path
+        )
+        if reference_path is not None:
+            page_endpoint = FAL_KONTEXT_ENDPOINT
+            _condition_on_reference(
+                arguments,
+                fal_client.upload_file(reference_path),
+                REFERENCE_INSTRUCTIONS[reference_mode],
+            )
 
-        image_bytes = _generate_page(fal_client, endpoint, arguments, page=i + 1)
+        image_bytes = _generate_page(fal_client, page_endpoint, arguments, page=i + 1)
         out_path = output_path / f"page_{i + 1:02d}.png"
         out_path.write_bytes(image_bytes)
         saved_paths.append(str(out_path))
+        if "seed" in arguments:
+            seeds_used[out_path.name] = arguments["seed"]
         logger.info("Saved fal illustration", extra={"page": i + 1, "path": str(out_path)})
 
+    if seeds_used:
+        (output_path / "seeds.json").write_text(json.dumps(seeds_used, indent=2))
     return saved_paths
 
 
+def _page_seed(photo_path: Path, page_index: int) -> int:
+    """A seed fixed by album and page, shared by every character_reference
+    condition so the conditions differ only in their reference image.
+
+    The album is the photo's folder name. hashlib, not hash(), because Python
+    salts str hashes per process and the seed must survive reruns.
+    """
+    key = f"{photo_path.parent.name}/{page_index + 1}".encode()
+    return int.from_bytes(hashlib.sha256(key).digest()[:4], "big") & 0x7FFFFFFF
+
+
+def _base_arguments(prompt: str, preset: StylePreset) -> dict:
+    arguments: dict = {
+        "prompt": prompt,
+        "image_size": SPREAD_IMAGE_SIZE,
+        "num_inference_steps": INFERENCE_STEPS,
+        "guidance_scale": GUIDANCE_SCALE,
+        "num_images": 1,
+        "enable_safety_checker": False,
+    }
+    if preset.flux_lora:
+        arguments["loras"] = [{"path": preset.flux_lora, "scale": LORA_SCALE}]
+    return arguments
+
+
+def _reference_image_path(
+    reference_mode: str,
+    page_index: int,
+    saved_paths: list[str],
+    source_photo_paths: list[str] | None,
+    output_path: Path,
+) -> Path | None:
+    """The image a spread is conditioned on, or None for text-only generation."""
+    if reference_mode == "previous_spread" and saved_paths:
+        return Path(saved_paths[-1])
+    if reference_mode == "source_photo" and source_photo_paths is not None:
+        return _save_spread_sized_photo(
+            Path(source_photo_paths[page_index]),
+            output_path / "references" / f"page_{page_index + 1:02d}_source.png",
+        )
+    return None
+
+
+def _save_spread_sized_photo(photo_path: Path, out_path: Path) -> Path:
+    """Centre-crop and resize a photo to the spread size.
+
+    Kontext's "match_input" sizes the output after the reference, so an
+    unprepared 500 px portrait photo would yield a small portrait illustration.
+    """
+    size = (SPREAD_IMAGE_SIZE["width"], SPREAD_IMAGE_SIZE["height"])
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    with Image.open(photo_path) as photo:
+        upright = ImageOps.exif_transpose(photo).convert("RGB")
+    ImageOps.fit(upright, size, method=Image.Resampling.LANCZOS).save(out_path)
+    return out_path
+
+
+def _condition_on_reference(arguments: dict, reference_url: str, instruction: str) -> None:
+    """Switch text-to-image arguments to Kontext's image-conditioned form.
+
+    Kontext has no free-form size; "match_input" keeps the reference's size,
+    which is the spread size when the reference is a prior spread.
+    """
+    del arguments["image_size"]
+    arguments["image_url"] = reference_url
+    arguments["resolution_mode"] = "match_input"
+    arguments["prompt"] = f"{instruction} {arguments['prompt']}"
+
+
 def _generate_page(fal_client, endpoint: str, arguments: dict, page: int) -> bytes:
-    """Run one fal generation, retrying when FLUX returns an all-black frame."""
+    """Run one fal generation, retrying when FLUX returns an all-black frame.
+
+    A fixed seed would reproduce the same black frame, so each retry moves to
+    the next seed; `arguments["seed"]` is left holding the seed that succeeded.
+    """
+    first_seed = arguments.get("seed")
     for attempt in range(1, MAX_ATTEMPTS + 1):
+        if first_seed is not None:
+            arguments["seed"] = first_seed + attempt - 1
         try:
             result = fal_client.run(endpoint, arguments=arguments)
             image_url = result["images"][0]["url"]

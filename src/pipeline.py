@@ -39,7 +39,11 @@ class StoryPipeline:
             stage0["descriptions"].get(p, "") for p in stage0["ordered_paths"]
         ]
         stage2 = run_stage2(
-            ordered_descriptions, style, self.config["stage2"], str(out / "illustrations")
+            ordered_descriptions,
+            style,
+            self.config["stage2"],
+            str(out / "illustrations"),
+            source_photo_paths=stage0["ordered_paths"],
         )
         stage3 = run_stage3(
             stage1,

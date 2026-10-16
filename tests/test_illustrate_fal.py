@@ -44,8 +44,12 @@ def fake_fal(monkeypatch):
     def fake_urlopen(url: str):
         return _FakeResponse(BLACK_PNG if "black" in url else COLOR_PNG)
 
+    def fake_upload_file(path):
+        return f"https://fal.example/uploaded/{Path(path).name}"
+
     monkeypatch.setenv("FAL_KEY", "test-key")
     monkeypatch.setattr("fal_client.run", fake_run)
+    monkeypatch.setattr("fal_client.upload_file", fake_upload_file)
     monkeypatch.setattr(illustrate_fal.urllib.request, "urlopen", fake_urlopen)
     return calls
 
@@ -153,11 +157,11 @@ def test_landscape_spread_aspect_ratio_used(fake_fal, tmp_path):
     assert illustrate_fal.SPREAD_IMAGE_SIZE["width"] > illustrate_fal.SPREAD_IMAGE_SIZE["height"]
 
 
-def test_build_character_reference_dedupes_and_caps():
-    from src.stages.illustrate_fal import CHARACTER_REF_WORD_CAP, _build_character_reference
+def test_build_character_description_dedupes_and_caps():
+    from src.stages.illustrate_fal import CHARACTER_REF_WORD_CAP, _build_character_description
 
     scenes = ["a red bike"] * 3 + [" ".join(f"word{i}" for i in range(100))]
-    ref = _build_character_reference(scenes)
+    ref = _build_character_description(scenes)
 
     assert ref.count("a red bike") == 1
     assert len(ref.split()) <= CHARACTER_REF_WORD_CAP
@@ -197,3 +201,173 @@ def test_prompt_includes_text_quality_hint(fake_fal, tmp_path):
 
     prompt = fake_fal[0][1]["prompt"]
     assert illustrate_fal.TEXT_QUALITY_HINT in prompt
+
+
+PREVIOUS_SPREAD = {"backend": "fal", "character_reference": "previous_spread"}
+
+
+def test_previous_spread_conditions_each_later_spread_on_the_one_before(fake_fal, tmp_path):
+    generate_illustrations_fal(
+        ["a girl on a swing", "a girl eating ice cream", "a girl asleep"],
+        "ghibli",
+        PREVIOUS_SPREAD,
+        str(tmp_path),
+    )
+
+    first_endpoint, first_arguments = fake_fal[0]
+    assert first_endpoint == illustrate_fal.FAL_LORA_ENDPOINT
+    assert "image_url" not in first_arguments
+    for page, (endpoint, arguments) in enumerate(fake_fal[1:], start=2):
+        assert endpoint == illustrate_fal.FAL_KONTEXT_ENDPOINT
+        assert arguments["image_url"].endswith(f"page_{page - 1:02d}.png")
+        assert arguments["loras"][0]["path"] == "openfree/flux-chatgpt-ghibli-lora"
+
+
+def test_previous_spread_asks_for_a_new_scene_with_the_same_characters(fake_fal, tmp_path):
+    generate_illustrations_fal(
+        ["a girl on a swing", "a girl eating ice cream"], "ghibli", PREVIOUS_SPREAD, str(tmp_path)
+    )
+
+    first_prompt, second_prompt = (arguments["prompt"] for _, arguments in fake_fal)
+    assert not first_prompt.startswith(illustrate_fal.PREVIOUS_SPREAD_INSTRUCTION)
+    assert second_prompt.startswith(illustrate_fal.PREVIOUS_SPREAD_INSTRUCTION)
+    assert "a girl eating ice cream" in second_prompt
+
+
+SOURCE_PHOTO = {"backend": "fal", "character_reference": "source_photo"}
+
+
+def _photo(path: Path, size: tuple[int, int]) -> str:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    Image.new("RGB", size, (90, 140, 200)).save(path)
+    return str(path)
+
+
+def test_source_photo_conditions_every_spread_on_its_own_photo_cropped_to_spread(
+    fake_fal, monkeypatch, tmp_path
+):
+    uploaded_sizes: dict[str, tuple[int, int]] = {}
+
+    def record_upload(path):
+        with Image.open(path) as img:
+            uploaded_sizes[Path(path).name] = img.size
+        return f"https://fal.example/uploaded/{Path(path).name}"
+
+    monkeypatch.setattr("fal_client.upload_file", record_upload)
+    photos = [
+        _photo(tmp_path / "album" / "landscape.jpg", (500, 375)),
+        _photo(tmp_path / "album" / "portrait.jpg", (375, 500)),
+    ]
+
+    generate_illustrations_fal(
+        ["a family at a castle", "a child on a ride"],
+        "ghibli",
+        SOURCE_PHOTO,
+        str(tmp_path / "out"),
+        source_photo_paths=photos,
+    )
+
+    spread = (illustrate_fal.SPREAD_IMAGE_SIZE["width"], illustrate_fal.SPREAD_IMAGE_SIZE["height"])
+    assert len(uploaded_sizes) == 2
+    assert set(uploaded_sizes.values()) == {spread}
+    for page, (endpoint, arguments) in enumerate(fake_fal, start=1):
+        assert endpoint == illustrate_fal.FAL_KONTEXT_ENDPOINT
+        assert f"page_{page:02d}" in arguments["image_url"]
+        assert arguments["prompt"].startswith(illustrate_fal.SOURCE_PHOTO_INSTRUCTION)
+
+
+@pytest.mark.parametrize("photos", [None, ["only_one.jpg"]])
+def test_source_photo_without_one_photo_per_scene_raises(fake_fal, tmp_path, photos):
+    with pytest.raises(IllustrationError, match="source_photo_paths"):
+        generate_illustrations_fal(
+            ["scene one", "scene two"],
+            "ghibli",
+            SOURCE_PHOTO,
+            str(tmp_path),
+            source_photo_paths=photos,
+        )
+    assert fake_fal == []
+
+
+def test_seed_depends_on_album_and_page_not_on_condition(fake_fal, tmp_path):
+    photos = [
+        _photo(tmp_path / "cufed_ThemePark" / f"{i}.jpg", (500, 375)) for i in range(2)
+    ]
+    scenes = ["a family at a castle", "a child on a ride"]
+
+    seeds_by_condition = []
+    for mode in ("none", "previous_spread", "source_photo"):
+        fake_fal.clear()
+        generate_illustrations_fal(
+            scenes,
+            "ghibli",
+            {"character_reference": mode},
+            str(tmp_path / mode),
+            source_photo_paths=photos,
+        )
+        seeds_by_condition.append([arguments["seed"] for _, arguments in fake_fal])
+
+    assert seeds_by_condition[0] == seeds_by_condition[1] == seeds_by_condition[2]
+    page_1_seed, page_2_seed = seeds_by_condition[0]
+    assert page_1_seed != page_2_seed
+
+
+def test_seed_differs_between_albums(fake_fal, tmp_path):
+    for album in ("disneyland", "legoland"):
+        generate_illustrations_fal(
+            ["a child on a ride"],
+            "ghibli",
+            {},
+            str(tmp_path / album / "out"),
+            source_photo_paths=[_photo(tmp_path / album / "photo.jpg", (500, 375))],
+        )
+
+    disneyland_seed, legoland_seed = (arguments["seed"] for _, arguments in fake_fal)
+    assert disneyland_seed != legoland_seed
+
+
+def test_blank_retry_moves_to_next_seed_and_records_the_seed_used(monkeypatch, tmp_path):
+    import json
+
+    monkeypatch.setenv("FAL_KEY", "test-key")
+    urls = ["https://fal.example/black.png", "https://fal.example/color.png"]
+    sent_seeds: list[int] = []
+
+    def fake_run(endpoint, arguments):
+        sent_seeds.append(arguments["seed"])
+        return {"images": [{"url": urls.pop(0)}]}
+
+    monkeypatch.setattr("fal_client.run", fake_run)
+    monkeypatch.setattr(
+        illustrate_fal.urllib.request,
+        "urlopen",
+        lambda url: _FakeResponse(BLACK_PNG if "black" in url else COLOR_PNG),
+    )
+
+    out_dir = tmp_path / "out"
+    generate_illustrations_fal(
+        ["a child on a ride"],
+        "crayon",
+        {},
+        str(out_dir),
+        source_photo_paths=[_photo(tmp_path / "album" / "photo.jpg", (500, 375))],
+    )
+
+    first_seed, retry_seed = sent_seeds
+    assert retry_seed == first_seed + 1
+    assert json.loads((out_dir / "seeds.json").read_text()) == {"page_01.png": retry_seed}
+
+
+@pytest.mark.parametrize("mode", ["none", "previous_spread", "source_photo"])
+def test_every_condition_samples_with_28_steps_and_guidance_3_5(fake_fal, tmp_path, mode):
+    generate_illustrations_fal(
+        ["a girl on a swing", "a girl eating ice cream"],
+        "ghibli",
+        {"character_reference": mode},
+        str(tmp_path / "out"),
+        source_photo_paths=[
+            _photo(tmp_path / "album" / f"{i}.jpg", (500, 375)) for i in range(2)
+        ],
+    )
+
+    assert {(a["num_inference_steps"], a["guidance_scale"]) for _, a in fake_fal} == {(28, 3.5)}

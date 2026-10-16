@@ -129,17 +129,25 @@ def generate_illustrations(
 
 
 def run_stage2(
-    descriptions: list[str], style: str, config: dict, output_dir: str
+    descriptions: list[str],
+    style: str,
+    config: dict,
+    output_dir: str,
+    source_photo_paths: list[str] | None = None,
 ) -> dict:
     """Returns: {"illustration_paths": list[str]}
 
     Dispatches to the hosted FLUX backend when `stage2.backend` is "fal";
-    otherwise uses the local Stable Diffusion 1.5 pipeline.
+    otherwise uses the local Stable Diffusion 1.5 pipeline. `source_photo_paths`
+    (one per description, in page order) fixes the fal backend's per-page seeds
+    and feeds its "source_photo" character_reference condition.
     """
     if config.get("backend", "local") == "fal":
         from src.stages.illustrate_fal import generate_illustrations_fal
 
-        paths = generate_illustrations_fal(descriptions, style, config, output_dir)
+        paths = generate_illustrations_fal(
+            descriptions, style, config, output_dir, source_photo_paths=source_photo_paths
+        )
     else:
         paths = generate_illustrations(descriptions, style, config, output_dir)
     return {"illustration_paths": paths}
