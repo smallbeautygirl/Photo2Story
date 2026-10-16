@@ -107,6 +107,26 @@ def test_run_stage0_random_mode(tmp_images, demo_config, mocker):
     mock_describe.assert_called_once()  # still called to get descriptions
 
 
+def test_run_stage0_keeps_undated_photos_in_input_order_not_selection_order(
+    tmp_images, demo_config, mocker
+):
+    """Photos without EXIF (e.g. the CUFED mirror) keep the order they were
+    given in, whatever order the selection strategy picked them in."""
+    cfg = dict(demo_config["stage0"])
+    cfg["mode"] = "random"
+    cfg["k"] = len(tmp_images)
+    mocker.patch(
+        "src.stages.stage0_select.describe_photos_with_vlm",
+        side_effect=lambda paths, *args, **kwargs: {p: "desc" for p in paths},
+    )
+
+    result = run_stage0(tmp_images, context="test trip", config=cfg)
+
+    assert result["selected_paths"] != tmp_images  # random picks them shuffled
+    assert result["ordered_paths"] == tmp_images
+    assert list(result["descriptions"]) == tmp_images
+
+
 def test_run_stage0_hybrid_empty_context_infers_theme(tmp_images, demo_config, mocker):
     """When context is empty, hybrid mode should infer a theme and still run scoring."""
     cfg = dict(demo_config["stage0"])

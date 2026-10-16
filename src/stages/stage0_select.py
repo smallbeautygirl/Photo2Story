@@ -274,8 +274,11 @@ def run_stage0(image_paths: list[str], context: str, config: dict) -> dict:
             all_descriptions=all_descriptions,
         )
 
-    # Phase C: order by EXIF timestamp
-    ordered = sort_by_exif(candidates)
+    # Phase C: order by EXIF timestamp. Undated photos keep their place in
+    # sort_by_exif's input, so hand it the candidates in input order, not in
+    # the order the selection strategy happened to pick them.
+    input_position = {path: i for i, path in enumerate(image_paths)}
+    ordered = sort_by_exif(sorted(candidates, key=input_position.__getitem__))
     ordered_descriptions = {p: descriptions.get(p, "") for p in ordered}
 
     logger.info(
