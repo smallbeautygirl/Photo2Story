@@ -41,7 +41,7 @@ The following {k} photo descriptions are in story order from a trip about: "{con
 
 {descriptions}
 
-In 2-3 sentences, describe the narrative arc: what happened first, what was the turning point, and how it ended. Focus on cause-and-effect relationships between scenes."""
+In 2-3 sentences, describe the narrative arc: what happened first, what was the turning point, and how it ended. Focus on cause-and-effect relationships between scenes. Keep the scenes in the order given -- do not reorder them."""
 
 # Reading-level presets control how short and simple the generated story is.
 # "simple" targets a real picture-book register (few words, common vocabulary);
@@ -76,6 +76,7 @@ Photo descriptions (one per page):
 
 Rules:
 - Write exactly {k} pages
+- Keep the photos' order: Page N must tell the scene of photo N, because each page is illustrated from its own photo -- do not move scenes to other pages, even if a different order would make a better story
 - Each page: {sentences} ({length_hint})
 - {vocab}
 - Every sentence must be grammatically complete and natural in the target language -- do not drop prepositions, particles, or verb-complement markers just to shorten a sentence (e.g. Chinese needs 在/著/地 where a natural sentence would use them, not a telegraphic string of nouns)

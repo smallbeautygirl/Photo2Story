@@ -16,6 +16,23 @@ def test_infer_causal_narrative_returns_string(mocker):
     assert len(result) > 0
 
 
+def test_infer_causal_narrative_prompt_forbids_reordering_scenes(mocker):
+    """The arc feeds the page-by-page story, so an arc that moves a scene (the
+    real CUFED run's "fireworks as the grand finale") drags the story with it."""
+    mock_generate = mocker.patch(
+        "src.stages.stage1_story.generate_text", return_value="An arc."
+    )
+
+    infer_causal_narrative(
+        descriptions={"p1.jpg": "fireworks over a castle", "p2.jpg": "a rocket ride"},
+        context="theme park",
+        model_name="gemini-2.5-flash",
+    )
+
+    prompt = mock_generate.call_args[0][0]
+    assert "do not reorder" in prompt
+
+
 def test_generate_story_returns_k_pages(mocker):
     mocker.patch(
         "src.stages.stage1_story.generate_text",
@@ -165,6 +182,28 @@ def test_generate_story_prompt_requires_grammatical_completeness(mocker):
 
     prompt = mock_generate.call_args[0][0]
     assert "grammatically complete" in prompt
+
+
+def test_generate_story_prompt_pins_each_page_to_its_photo(mocker):
+    """Each page is illustrated from its own photo, so the story must not move
+    scenes around -- confirmed against a real CUFED run where the LLM moved the
+    fireworks page from first to last while the illustrations stayed put."""
+    mock_generate = mocker.patch(
+        "src.stages.stage1_story.generate_text",
+        return_value='["A.", "B."]',
+    )
+
+    generate_story(
+        descriptions={"p1.jpg": "fireworks over a castle", "p2.jpg": "a rocket ride"},
+        narrative="arc",
+        context="ctx",
+        style="ghibli",
+        language="en",
+        model_name="gemini-2.5-flash",
+    )
+
+    prompt = mock_generate.call_args[0][0]
+    assert "Page N must tell the scene of photo N" in prompt
 
 
 def test_run_stage1_returns_language_used(mocker):
