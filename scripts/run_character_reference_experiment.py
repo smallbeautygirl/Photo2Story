@@ -21,6 +21,7 @@ from pathlib import Path
 from src.config import load_config
 from src.core.logging import setup_logging
 from src.eval.character_reference_sheet import render_character_reference_sheet
+from src.stages.illustrate_fal import describe_recurring_characters
 from src.stages.stage0_select import run_stage0
 from src.stages.stage1_story import run_stage1
 from src.stages.stage2_illustrate import run_stage2
@@ -86,6 +87,7 @@ def _run_album(
             stage2_config,
             str(illustrations_dir),
             source_photo_paths=story["ordered_paths"],
+            character_description=story.get("character_description"),
         )
         rows[condition] = result["illustration_paths"]
     sheet = render_character_reference_sheet(rows=rows, out_path=album_dir / "comparison.png")
@@ -95,7 +97,7 @@ def _run_album(
 def _load_or_create_story(album: str, config: dict, args, album_dir: Path) -> dict:
     story_path = album_dir / "story.json"
     if story_path.exists():
-        return json.loads(story_path.read_text())
+        return _with_character_description(json.loads(story_path.read_text()), config, story_path)
 
     image_paths = sorted(p for pattern in PHOTO_GLOBS for p in glob.glob(f"data/{album}/{pattern}"))
     if not image_paths:
@@ -111,6 +113,17 @@ def _load_or_create_story(album: str, config: dict, args, album_dir: Path) -> di
         "narrative": stage1["narrative"],
     }
     album_dir.mkdir(parents=True, exist_ok=True)
+    return _with_character_description(story, config, story_path)
+
+
+def _with_character_description(story: dict, config: dict, story_path: Path) -> dict:
+    """Describe the recurring characters once per album and store it, so every
+    condition gets word-for-word the same text."""
+    model = config["stage2"].get("character_description_model")
+    if model and "character_description" not in story:
+        story["character_description"] = describe_recurring_characters(
+            story["descriptions"], model
+        )
     story_path.write_text(json.dumps(story, ensure_ascii=False, indent=2))
     return story
 

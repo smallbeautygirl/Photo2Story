@@ -30,6 +30,9 @@ class Stage2Config(TypedDict):
     # Cross-spread character conditioning for the fal backend (see
     # docs/adr/0004-flux-kontext-character-reference.md); defaults to "none".
     character_reference: NotRequired[Literal["none", "previous_spread", "source_photo"]]
+    # Text model that describes the book's recurring characters for every fal
+    # prompt; without it the photo descriptions are concatenated instead.
+    character_description_model: NotRequired[str]
 
 
 class Stage3Config(TypedDict):

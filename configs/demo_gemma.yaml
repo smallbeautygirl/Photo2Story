@@ -14,6 +14,7 @@ stage1:
 
 stage2:
   backend: fal
+  character_description_model: gemma4:31b-it-q4_K_M
   base_model: runwayml/stable-diffusion-v1-5
   use_ipadapter: true
   use_stylealigned: false

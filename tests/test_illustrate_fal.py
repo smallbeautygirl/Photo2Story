@@ -383,3 +383,61 @@ def test_previous_spread_forbids_carrying_over_the_reference_scene(fake_fal, tmp
     second_prompt = fake_fal[1][1]["prompt"]
     assert "only for the characters' appearance" in second_prompt
     assert "Do not keep its background, setting, objects or composition" in second_prompt
+
+
+def test_recurring_characters_are_described_by_the_llm_without_the_scenery(mocker):
+    from src.stages.illustrate_fal import describe_recurring_characters
+
+    mock_generate = mocker.patch(
+        "src.stages.illustrate_fal.generate_text",
+        return_value=" ".join(["two girls in pink dresses"] * 20),
+    )
+
+    description = describe_recurring_characters(
+        ["fireworks over a purple castle", "two girls pose with Pluto"], "gemma4:31b"
+    )
+
+    prompt, model = mock_generate.call_args[0][:2]
+    assert model == "gemma4:31b"
+    assert "fireworks over a purple castle" in prompt
+    assert "two girls pose with Pluto" in prompt
+    assert "Do not mention places, buildings, objects or events" in prompt
+    assert len(description.split()) == illustrate_fal.CHARACTER_REF_WORD_CAP
+
+
+def test_given_character_description_replaces_the_concatenated_scenes(fake_fal, tmp_path):
+    generate_illustrations_fal(
+        ["fireworks over a purple castle", "two girls pose with Pluto"],
+        "ghibli",
+        {},
+        str(tmp_path),
+        character_description="two girls in pink dresses",
+    )
+
+    second_prompt = fake_fal[1][1]["prompt"]
+    assert "Recurring characters across the book: two girls in pink" in second_prompt
+    assert "castle" not in second_prompt
+
+
+def test_run_stage2_describes_the_characters_once_per_book_with_the_configured_model(mocker):
+    from src.stages.stage2_illustrate import run_stage2
+
+    describe = mocker.patch(
+        "src.stages.illustrate_fal.describe_recurring_characters",
+        return_value="two girls in pink dresses",
+    )
+    generate = mocker.patch(
+        "src.stages.illustrate_fal.generate_illustrations_fal", return_value=["page_01.png"]
+    )
+
+    run_stage2(
+        ["fireworks over a castle", "two girls pose with Pluto"],
+        "ghibli",
+        {"backend": "fal", "character_description_model": "gemma4:31b"},
+        "out",
+    )
+
+    describe.assert_called_once_with(
+        ["fireworks over a castle", "two girls pose with Pluto"], "gemma4:31b"
+    )
+    assert generate.call_args.kwargs["character_description"] == "two girls in pink dresses"

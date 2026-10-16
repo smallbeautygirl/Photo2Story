@@ -36,6 +36,14 @@ The trip context: "{context}"
 List the numbers 1 to {k} in the order these photos most likely occurred during the trip.
 Reply with ONLY the numbers separated by commas, e.g.: 2,1,3,4"""
 
+LLM_DESCRIBE_RECURRING_CHARACTERS = """\
+The following photo descriptions come from one family photo album:
+
+{descriptions}
+
+Describe only the people who recur across these photos: their number, approximate ages, genders, hair and clothing. Do not mention places, buildings, objects or events -- this text is attached to every illustration of the book, so any scenery in it would appear on every page.
+Reply with ONLY the description, at most {word_cap} words, in English."""
+
 LLM_CAUSAL_INFERENCE = """\
 The following {k} photo descriptions are in story order from a trip about: "{context}"
 

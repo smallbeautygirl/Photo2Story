@@ -134,19 +134,31 @@ def run_stage2(
     config: dict,
     output_dir: str,
     source_photo_paths: list[str] | None = None,
+    character_description: str | None = None,
 ) -> dict:
     """Returns: {"illustration_paths": list[str]}
 
     Dispatches to the hosted FLUX backend when `stage2.backend` is "fal";
     otherwise uses the local Stable Diffusion 1.5 pipeline. `source_photo_paths`
     (one per description, in page order) fixes the fal backend's per-page seeds
-    and feeds its "source_photo" character_reference condition.
+    and feeds its "source_photo" character_reference condition. With
+    `stage2.character_description_model` set, the book's recurring characters
+    are described once by that model unless `character_description` is given.
     """
     if config.get("backend", "local") == "fal":
-        from src.stages.illustrate_fal import generate_illustrations_fal
+        from src.stages import illustrate_fal
 
-        paths = generate_illustrations_fal(
-            descriptions, style, config, output_dir, source_photo_paths=source_photo_paths
+        if character_description is None and config.get("character_description_model"):
+            character_description = illustrate_fal.describe_recurring_characters(
+                descriptions, config["character_description_model"]
+            )
+        paths = illustrate_fal.generate_illustrations_fal(
+            descriptions,
+            style,
+            config,
+            output_dir,
+            source_photo_paths=source_photo_paths,
+            character_description=character_description,
         )
     else:
         paths = generate_illustrations(descriptions, style, config, output_dir)

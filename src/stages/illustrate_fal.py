@@ -21,7 +21,8 @@ from pathlib import Path
 from dotenv import load_dotenv
 from PIL import Image, ImageOps
 
-from src.utils.prompt_templates import SD_PROMPT_TEMPLATE
+from src.utils.llm_client import generate_text
+from src.utils.prompt_templates import LLM_DESCRIBE_RECURRING_CHARACTERS, SD_PROMPT_TEMPLATE
 from src.utils.styles import StylePreset, resolve_style
 
 logger = logging.getLogger(__name__)
@@ -119,6 +120,21 @@ def _build_character_description(descriptions: list[str]) -> str:
     return combined
 
 
+def describe_recurring_characters(descriptions: list[str], model_name: str) -> str:
+    """Ask a text LLM for the book's recurring people only, capped like the
+    concatenated continuity string it replaces.
+
+    Concatenating the raw photo descriptions carried their scenery too: a CUFED
+    trial put the first photo's castle and fireworks on every spread.
+    """
+    numbered = "\n".join(f"{i + 1}. {d}" for i, d in enumerate(descriptions))
+    prompt = LLM_DESCRIBE_RECURRING_CHARACTERS.format(
+        descriptions=numbered, word_cap=CHARACTER_REF_WORD_CAP
+    )
+    words = generate_text(prompt, model_name).split()
+    return " ".join(words[:CHARACTER_REF_WORD_CAP])
+
+
 def _build_prompt(scene: str, preset: StylePreset, character_description: str = "") -> str:
     """Compose the FLUX prompt.
 
@@ -138,7 +154,7 @@ def _build_prompt(scene: str, preset: StylePreset, character_description: str = 
     prompt = f"{prompt} {ANATOMY_QUALITY_HINT}, {TEXT_QUALITY_HINT}."
     if character_description:
         prompt = (
-            f"{prompt} Recurring characters and setting across the book: {character_description}."
+            f"{prompt} Recurring characters across the book: {character_description}."
         )
     return prompt
 
@@ -149,6 +165,7 @@ def generate_illustrations_fal(
     config: dict,
     output_dir: str,
     source_photo_paths: list[str] | None = None,
+    character_description: str | None = None,
 ) -> list[str]:
     """Generate one illustration per page via fal.ai hosted FLUX.1-dev.
 
@@ -156,6 +173,8 @@ def generate_illustrations_fal(
     field read is `character_reference`: "previous_spread" conditions each
     spread after the first on the spread before it, "source_photo" conditions
     every spread on its own entry in `source_photo_paths` (one per scene).
+    `character_description` (see `describe_recurring_characters`) is attached
+    to every prompt; without it, the photo descriptions are concatenated.
     """
     import fal_client
 
@@ -183,7 +202,8 @@ def generate_illustrations_fal(
         },
     )
 
-    character_description = _build_character_description(scenes)
+    if character_description is None:
+        character_description = _build_character_description(scenes)
     saved_paths: list[str] = []
     seeds_used: dict[str, int] = {}
     for i, scene in enumerate(scenes):
