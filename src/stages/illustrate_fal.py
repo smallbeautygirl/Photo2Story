@@ -92,10 +92,13 @@ SOURCE_PHOTO_INSTRUCTION = (
 # background however the instruction was worded (four CUFED trials). So the
 # first spread is first edited down to just the family on white, and that
 # sheet -- not a spread -- conditions every later spread.
+# "Human beings" is spelled out because a softer "remove costumed characters,
+# mascots" kept a cartoon Goofy as one of the "two adults" and dropped the parents.
 CHARACTER_SHEET_EXTRACTION = (
-    "Keep only these people from the image: {characters} Show them standing side by "
-    "side, full body, on a plain white background, in the same art style. Remove "
-    "everything else: background, objects, costumed characters, mascots, bystanders."
+    "Keep only the human beings in the image, these people: {characters} Remove every "
+    "non-human character, including cartoon animals and anyone in an animal costume, "
+    "and everything else: background, objects, bystanders. Show the people standing "
+    "side by side, full body, on a plain white background, in the same art style."
 )
 CHARACTER_SHEET_INSTRUCTION = (
     "The reference image is a character sheet: draw these same people, keeping "

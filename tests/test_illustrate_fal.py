@@ -493,9 +493,7 @@ def test_character_sheet_is_cut_from_the_first_spread_and_conditions_every_later
     assert page_1 == illustrate_fal.FAL_LORA_ENDPOINT
     assert sheet_endpoint == illustrate_fal.FAL_KONTEXT_ENDPOINT
     assert sheet["image_url"].endswith("page_01.png")
-    assert sheet["prompt"].startswith(
-        "Keep only these people from the image: Two adults and two young girls."
-    )
+    assert "these people: Two adults and two young girls." in sheet["prompt"]
     assert "plain white background" in sheet["prompt"]
     for endpoint, arguments in ((page_2, page_2_args), (page_3, page_3_args)):
         assert endpoint == illustrate_fal.FAL_KONTEXT_ENDPOINT
@@ -513,3 +511,19 @@ def test_character_sheet_without_seeds_writes_no_seed_record(fake_fal, tmp_path)
     )
 
     assert not (tmp_path / "seeds.json").exists()
+
+
+def test_character_sheet_keeps_only_human_beings(fake_fal, tmp_path):
+    """A real CUFED sheet kept a cartoon Goofy as one of "two adults" and dropped
+    the actual parents: "costumed characters, mascots" was not specific enough."""
+    generate_illustrations_fal(
+        ["a family poses with Goofy", "two girls pose with Pluto"],
+        "ghibli",
+        CHARACTER_SHEET,
+        str(tmp_path),
+        character_description="Two adults and two young girls.",
+    )
+
+    sheet_prompt = fake_fal[1][1]["prompt"]
+    assert "Keep only the human beings" in sheet_prompt
+    assert "including cartoon animals and anyone in an animal costume" in sheet_prompt
