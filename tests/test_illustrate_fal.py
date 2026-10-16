@@ -441,3 +441,19 @@ def test_run_stage2_describes_the_characters_once_per_book_with_the_configured_m
         ["fireworks over a castle", "two girls pose with Pluto"], "gemma4:31b"
     )
     assert generate.call_args.kwargs["character_description"] == "two girls in pink dresses"
+
+
+def test_source_photo_asks_for_a_full_repaint_not_a_light_edit(fake_fal, tmp_path):
+    """A real CUFED night photo came back under "Redraw this photo as an
+    illustration" as little more than the photo itself."""
+    generate_illustrations_fal(
+        ["fireworks over a castle"],
+        "ghibli",
+        SOURCE_PHOTO,
+        str(tmp_path / "out"),
+        source_photo_paths=[_photo(tmp_path / "album" / "night.jpg", (500, 375))],
+    )
+
+    prompt = fake_fal[0][1]["prompt"]
+    assert "Completely repaint this photo as a hand-drawn illustration" in prompt
+    assert "no photographic textures" in prompt

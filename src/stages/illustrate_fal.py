@@ -75,8 +75,12 @@ PREVIOUS_SPREAD_INSTRUCTION = (
     "skin tone, clothing). Do not keep its background, setting, objects or "
     "composition; draw a completely different scene. Scene:"
 )
+# Likewise blunt: "Redraw this photo as an illustration" returned a CUFED night
+# photo almost untouched, so the style LoRA never took hold.
 SOURCE_PHOTO_INSTRUCTION = (
-    "Redraw this photo as an illustration, keeping the people's appearance. Scene:"
+    "Completely repaint this photo as a hand-drawn illustration in the style "
+    "described below, keeping the people's appearance; no photographic textures, "
+    "lighting or detail may remain. Scene:"
 )
 REFERENCE_INSTRUCTIONS = {
     "previous_spread": PREVIOUS_SPREAD_INSTRUCTION,
