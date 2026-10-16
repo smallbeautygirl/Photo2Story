@@ -29,7 +29,9 @@ class Stage2Config(TypedDict):
     backend: NotRequired[Literal["local", "fal"]]
     # Cross-spread character conditioning for the fal backend (see
     # docs/adr/0004-flux-kontext-character-reference.md); defaults to "none".
-    character_reference: NotRequired[Literal["none", "previous_spread", "source_photo"]]
+    character_reference: NotRequired[
+        Literal["none", "previous_spread", "character_sheet", "source_photo"]
+    ]
     # Text model that describes the book's recurring characters for every fal
     # prompt; without it the photo descriptions are concatenated instead.
     character_description_model: NotRequired[str]
@@ -52,7 +54,7 @@ class PipelineConfig(TypedDict):
 
 _VALID_MODES = {"random", "clip_only", "llm_only", "hybrid", "hybrid_v2"}
 _VALID_CONTEXT_MODES = {"none", "keyword", "full"}
-_VALID_CHARACTER_REFERENCES = {"none", "previous_spread", "source_photo"}
+_VALID_CHARACTER_REFERENCES = {"none", "previous_spread", "character_sheet", "source_photo"}
 
 
 def _validate(cfg: dict) -> None:

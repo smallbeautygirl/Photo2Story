@@ -69,7 +69,7 @@ def test_character_reference_defaults_to_none_when_omitted(tmp_path):
     assert loaded["stage2"]["character_reference"] == "none"
 
 
-@pytest.mark.parametrize("mode", ["none", "previous_spread", "source_photo"])
+@pytest.mark.parametrize("mode", ["none", "previous_spread", "character_sheet", "source_photo"])
 def test_character_reference_accepts_each_condition(tmp_path, mode):
     loaded = load_config(_write_config(tmp_path, {"character_reference": mode}))
 

@@ -28,10 +28,10 @@ from src.stages.stage2_illustrate import run_stage2
 
 logger = logging.getLogger(__name__)
 
-ALL_CONDITIONS = ("none", "previous_spread", "source_photo")
+ALL_CONDITIONS = ("none", "previous_spread", "character_sheet", "source_photo")
 # Source photos go to the hosted image service, so the source_photo condition
 # runs only on publicly licensed albums, never on private family albums.
-PRIVATE_CONDITIONS = ("none", "previous_spread")
+PRIVATE_CONDITIONS = ("none", "previous_spread", "character_sheet")
 PHOTO_GLOBS = ("*.jpg", "*.jpeg", "*.JPG", "*.JPEG", "*.png", "*.heic", "*.HEIC")
 
 # CUFED: the two albums screened for a recurring family that are CC BY / CC BY-SA

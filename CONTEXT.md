@@ -24,6 +24,10 @@ The vertical line at the physical binding fold of a `picture_book_spread` page, 
 The single most recently generated spread illustration (the immediately previous spread, not the original source photos), passed to FLUX Kontext as image-conditioning input so the next spread's illustration visually matches the recurring character's actual rendered appearance rather than only a text description of it. Selected by `stage2.character_reference: previous_spread`; unavailable for the first spread of a book, which always falls back to text-only generation.
 _Avoid_: character reference (ambiguous with the pre-existing text-only continuity string built by `_build_character_description` in `illustrate_fal.py`), reference image (also used for the unrelated IP-Adapter style-image mechanism in the local SD 1.5 backend).
 
+**Character sheet**:
+An image of only the book's recurring people, standing on a plain white background, made by editing the book's first spread with FLUX Kontext; it then conditions every later spread. Unlike a **Character reference image**, it carries no background, objects or secondary figures (such as costumed mascots) forward, and the conditioning does not chain from spread to spread. Selected by `stage2.character_reference: character_sheet`.
+_Avoid_: character design sheet, model sheet (an independently generated design, a different thing that was considered and rejected), anchor image.
+
 **Source photo reference**:
 A spread's own original source photo — the user photo that spread was generated from — passed to FLUX Kontext as image-conditioning input, so the illustration inherits the real person's appearance (and the photo's composition) directly. Every spread, including the first, has one. An alternative to the **Character reference image**, never combined with it; the two are separate experimental conditions for cross-spread character consistency. Run only on publicly licensed photo sets, never on private family albums, because it sends the photo itself to the hosted image service.
 _Avoid_: photo reference, anchor photo (a single fixed photo for the whole book — considered and rejected).

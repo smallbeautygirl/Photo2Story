@@ -88,9 +88,25 @@ SOURCE_PHOTO_INSTRUCTION = (
     "described below, keeping the people's appearance; no photographic textures, "
     "lighting or detail may remain. Scene:"
 )
+# Character sheet: a previous spread, used whole, passed on its mascots and
+# background however the instruction was worded (four CUFED trials). So the
+# first spread is first edited down to just the family on white, and that
+# sheet -- not a spread -- conditions every later spread.
+CHARACTER_SHEET_EXTRACTION = (
+    "Keep only these people from the image: {characters} Show them standing side by "
+    "side, full body, on a plain white background, in the same art style. Remove "
+    "everything else: background, objects, costumed characters, mascots, bystanders."
+)
+CHARACTER_SHEET_INSTRUCTION = (
+    "The reference image is a character sheet: draw these same people, keeping "
+    "their faces, hair, skin tone and clothing, into the new scene below. Do not "
+    "draw the white background. Scene:"
+)
+CHARACTER_SHEET_NAME = "character_sheet.png"
 REFERENCE_INSTRUCTIONS = {
     "previous_spread": PREVIOUS_SPREAD_INSTRUCTION,
     "source_photo": SOURCE_PHOTO_INSTRUCTION,
+    "character_sheet": CHARACTER_SHEET_INSTRUCTION,
 }
 
 # FLUX occasionally returns an all-black frame (a NaN glitch on a bad seed).
@@ -224,11 +240,10 @@ def generate_illustrations_fal(
         reference_path = _reference_image_path(
             reference_mode, i, saved_paths, source_photo_paths, output_path
         )
+        characters = character_description or UNNAMED_CHARACTERS
         if reference_path is not None:
             page_endpoint = FAL_KONTEXT_ENDPOINT
-            instruction = REFERENCE_INSTRUCTIONS[reference_mode].format(
-                characters=character_description or UNNAMED_CHARACTERS
-            )
+            instruction = REFERENCE_INSTRUCTIONS[reference_mode].format(characters=characters)
             _condition_on_reference(
                 arguments, fal_client.upload_file(reference_path), instruction
             )
@@ -240,6 +255,12 @@ def generate_illustrations_fal(
         if "seed" in arguments:
             seeds_used[out_path.name] = arguments["seed"]
         logger.info("Saved fal illustration", extra={"page": i + 1, "path": str(out_path)})
+        if reference_mode == "character_sheet" and i == 0 and len(scenes) > 1:
+            sheet_seed = _save_character_sheet(
+                fal_client, out_path, arguments, characters, output_path
+            )
+            if sheet_seed is not None:
+                seeds_used[CHARACTER_SHEET_NAME] = sheet_seed
 
     if seeds_used:
         (output_path / "seeds.json").write_text(json.dumps(seeds_used, indent=2))
@@ -281,12 +302,36 @@ def _reference_image_path(
     """The image a spread is conditioned on, or None for text-only generation."""
     if reference_mode == "previous_spread" and saved_paths:
         return Path(saved_paths[-1])
+    if reference_mode == "character_sheet" and page_index > 0:
+        return output_path / "references" / CHARACTER_SHEET_NAME
     if reference_mode == "source_photo" and source_photo_paths is not None:
         return _save_spread_sized_photo(
             Path(source_photo_paths[page_index]),
             output_path / "references" / f"page_{page_index + 1:02d}_source.png",
         )
     return None
+
+
+def _save_character_sheet(
+    fal_client, first_spread: Path, first_arguments: dict, characters: str, output_path: Path
+) -> int | None:
+    """Edit the first spread down to the recurring people on white and save it
+    as the reference for every later spread; returns the seed that produced it."""
+    arguments = {
+        key: first_arguments[key]
+        for key in ("num_inference_steps", "guidance_scale", "num_images",
+                    "enable_safety_checker", "loras", "seed")
+        if key in first_arguments
+    }
+    arguments["prompt"] = CHARACTER_SHEET_EXTRACTION.format(characters=characters)
+    arguments["image_url"] = fal_client.upload_file(first_spread)
+    arguments["resolution_mode"] = "match_input"
+    image_bytes = _generate_page(fal_client, FAL_KONTEXT_ENDPOINT, arguments, page=1)
+    sheet_path = output_path / "references" / CHARACTER_SHEET_NAME
+    sheet_path.parent.mkdir(parents=True, exist_ok=True)
+    sheet_path.write_bytes(image_bytes)
+    logger.info("Saved character sheet", extra={"path": str(sheet_path)})
+    return arguments.get("seed")
 
 
 def _save_spread_sized_photo(photo_path: Path, out_path: Path) -> Path:

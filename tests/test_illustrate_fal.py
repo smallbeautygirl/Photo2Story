@@ -473,3 +473,43 @@ def test_previous_spread_names_which_people_to_keep_from_the_reference(fake_fal,
     second_prompt = fake_fal[1][1]["prompt"]
     assert "keep only these people: Two adults and two young girls." in second_prompt
     assert "Do not copy any other figure from it (costumed characters, mascots" in second_prompt
+
+
+CHARACTER_SHEET = {"backend": "fal", "character_reference": "character_sheet"}
+
+
+def test_character_sheet_is_cut_from_the_first_spread_and_conditions_every_later_one(
+    fake_fal, tmp_path
+):
+    generate_illustrations_fal(
+        ["a family poses with Goofy", "two girls pose with Pluto", "a rocket ride"],
+        "ghibli",
+        CHARACTER_SHEET,
+        str(tmp_path),
+        character_description="Two adults and two young girls.",
+    )
+
+    (page_1, _), (sheet_endpoint, sheet), (page_2, page_2_args), (page_3, page_3_args) = fake_fal
+    assert page_1 == illustrate_fal.FAL_LORA_ENDPOINT
+    assert sheet_endpoint == illustrate_fal.FAL_KONTEXT_ENDPOINT
+    assert sheet["image_url"].endswith("page_01.png")
+    assert sheet["prompt"].startswith(
+        "Keep only these people from the image: Two adults and two young girls."
+    )
+    assert "plain white background" in sheet["prompt"]
+    for endpoint, arguments in ((page_2, page_2_args), (page_3, page_3_args)):
+        assert endpoint == illustrate_fal.FAL_KONTEXT_ENDPOINT
+        assert arguments["image_url"].endswith("character_sheet.png")
+        assert arguments["prompt"].startswith("The reference image is a character sheet")
+    assert (tmp_path / "references" / "character_sheet.png").exists()
+
+
+def test_character_sheet_without_seeds_writes_no_seed_record(fake_fal, tmp_path):
+    generate_illustrations_fal(
+        ["a family poses with Goofy", "two girls pose with Pluto"],
+        "ghibli",
+        CHARACTER_SHEET,
+        str(tmp_path),
+    )
+
+    assert not (tmp_path / "seeds.json").exists()
