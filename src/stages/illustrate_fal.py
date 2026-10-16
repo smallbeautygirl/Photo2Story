@@ -66,10 +66,13 @@ TEXT_QUALITY_HINT = "plain signage without legible text, no watermark, no signat
 
 # Kontext reads the prompt as an edit instruction for the reference image, so
 # a bare scene description risks a near-copy of the reference. Each condition
-# states what the reference is for; the rest of the prompt is unchanged.
+# states what the reference is for; the rest of the prompt is unchanged. The
+# previous-spread wording is deliberately blunt: a softer "draw a new scene with
+# the same characters" kept the prior castle-and-fireworks on every spread.
 PREVIOUS_SPREAD_INSTRUCTION = (
-    "Draw a new scene featuring the same characters as in the reference image, "
-    "keeping their appearance. Scene:"
+    "Use the reference image only for the characters' appearance (faces, hair, "
+    "skin tone, clothing). Do not keep its background, setting, objects or "
+    "composition; draw a completely different scene. Scene:"
 )
 SOURCE_PHOTO_INSTRUCTION = (
     "Redraw this photo as an illustration, keeping the people's appearance. Scene:"

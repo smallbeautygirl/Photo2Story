@@ -371,3 +371,15 @@ def test_every_condition_samples_with_28_steps_and_guidance_3_5(fake_fal, tmp_pa
     )
 
     assert {(a["num_inference_steps"], a["guidance_scale"]) for _, a in fake_fal} == {(28, 3.5)}
+
+
+def test_previous_spread_forbids_carrying_over_the_reference_scene(fake_fal, tmp_path):
+    """A real CUFED run with a softer instruction kept the previous spread's
+    castle and fireworks on every later spread, stacking the new scene on top."""
+    generate_illustrations_fal(
+        ["fireworks over a castle", "a rocket ride"], "ghibli", PREVIOUS_SPREAD, str(tmp_path)
+    )
+
+    second_prompt = fake_fal[1][1]["prompt"]
+    assert "only for the characters' appearance" in second_prompt
+    assert "Do not keep its background, setting, objects or composition" in second_prompt
