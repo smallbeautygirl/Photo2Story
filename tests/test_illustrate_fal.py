@@ -229,8 +229,8 @@ def test_previous_spread_asks_for_a_new_scene_with_the_same_characters(fake_fal,
     )
 
     first_prompt, second_prompt = (arguments["prompt"] for _, arguments in fake_fal)
-    assert not first_prompt.startswith(illustrate_fal.PREVIOUS_SPREAD_INSTRUCTION)
-    assert second_prompt.startswith(illustrate_fal.PREVIOUS_SPREAD_INSTRUCTION)
+    assert not first_prompt.startswith("From the reference image keep only these people:")
+    assert second_prompt.startswith("From the reference image keep only these people:")
     assert "a girl eating ice cream" in second_prompt
 
 
@@ -381,7 +381,7 @@ def test_previous_spread_forbids_carrying_over_the_reference_scene(fake_fal, tmp
     )
 
     second_prompt = fake_fal[1][1]["prompt"]
-    assert "only for the characters' appearance" in second_prompt
+    assert "the scene below replaces it entirely" in second_prompt
     assert "Do not keep its background, setting, objects or composition" in second_prompt
 
 
@@ -457,3 +457,19 @@ def test_source_photo_asks_for_a_full_repaint_not_a_light_edit(fake_fal, tmp_pat
     prompt = fake_fal[0][1]["prompt"]
     assert "Completely repaint this photo as a hand-drawn illustration" in prompt
     assert "no photographic textures" in prompt
+
+
+def test_previous_spread_names_which_people_to_keep_from_the_reference(fake_fal, tmp_path):
+    """A real CUFED run kept Goofy from the previous spread and drew him where
+    the scene called for Pluto: "keep the characters" covered the mascot too."""
+    generate_illustrations_fal(
+        ["a family poses with Goofy", "two girls pose with Pluto"],
+        "ghibli",
+        PREVIOUS_SPREAD,
+        str(tmp_path),
+        character_description="Two adults and two young girls.",
+    )
+
+    second_prompt = fake_fal[1][1]["prompt"]
+    assert "keep only these people: Two adults and two young girls." in second_prompt
+    assert "Do not copy any other figure from it (costumed characters, mascots" in second_prompt

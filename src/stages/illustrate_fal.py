@@ -68,13 +68,19 @@ TEXT_QUALITY_HINT = "plain signage without legible text, no watermark, no signat
 # Kontext reads the prompt as an edit instruction for the reference image, so
 # a bare scene description risks a near-copy of the reference. Each condition
 # states what the reference is for; the rest of the prompt is unchanged. The
-# previous-spread wording is deliberately blunt: a softer "draw a new scene with
-# the same characters" kept the prior castle-and-fireworks on every spread.
+# previous-spread wording is deliberately blunt and names the people to keep:
+# "draw a new scene with the same characters" kept the prior castle-and-
+# fireworks on every spread, and "keep the characters' appearance" also kept a
+# costumed Goofy, who then replaced the Pluto the next scene called for.
 PREVIOUS_SPREAD_INSTRUCTION = (
-    "Use the reference image only for the characters' appearance (faces, hair, "
-    "skin tone, clothing). Do not keep its background, setting, objects or "
-    "composition; draw a completely different scene. Scene:"
+    "From the reference image keep only these people: {characters} Keep their "
+    "appearance (faces, hair, skin tone, clothing). Do not copy any other figure "
+    "from it (costumed characters, mascots, bystanders). Do not keep its "
+    "background, setting, objects or composition; the scene below replaces it "
+    "entirely. Scene:"
 )
+# Used when no character description is available to name the people.
+UNNAMED_CHARACTERS = "the recurring family members."
 # Likewise blunt: "Redraw this photo as an illustration" returned a CUFED night
 # photo almost untouched, so the style LoRA never took hold.
 SOURCE_PHOTO_INSTRUCTION = (
@@ -220,10 +226,11 @@ def generate_illustrations_fal(
         )
         if reference_path is not None:
             page_endpoint = FAL_KONTEXT_ENDPOINT
+            instruction = REFERENCE_INSTRUCTIONS[reference_mode].format(
+                characters=character_description or UNNAMED_CHARACTERS
+            )
             _condition_on_reference(
-                arguments,
-                fal_client.upload_file(reference_path),
-                REFERENCE_INSTRUCTIONS[reference_mode],
+                arguments, fal_client.upload_file(reference_path), instruction
             )
 
         image_bytes = _generate_page(fal_client, page_endpoint, arguments, page=i + 1)
